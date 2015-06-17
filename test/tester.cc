@@ -11,7 +11,7 @@ void pcap_cb(u_char *user,
 {
     restream_ctx_t *ctx = (restream_ctx_t *)user;
 
-    restream_pkt_t packet;
+    tmod_pkt_t packet;
 
     if(!decode(packet, pkthdr, pkt)) {
         puts("Err decoding.");
@@ -56,10 +56,14 @@ int test_pcap(restream_ctx_t *ctx, char *file, char *bpfstr)
 
 #define MAX_DUMP 256
 
-void packet_cb(restream_pkt_t &packet) 
+void packet_cb(uint8_t *data, uint32_t length)
 {
-    printf("Packet size: %d\n", packet.raw_size);
-    hex_dump(packet.raw_pkt, packet.raw_size);
+    printf("Packet size: %d\n", length);
+    hex_dump(data, length);
+
+    // Run it through the logger to dump payloads
+    // Check /tmp/tmod/packstats ... more decoding and useful stats
+    // and make packstats standalone-able.
 }
 
 int main(int argc, char **argv) 

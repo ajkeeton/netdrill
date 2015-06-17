@@ -1,5 +1,9 @@
 #pragma once
-#pragma once
+
+#include <stdio.h>
+#include <string.h>
+#include <stdint.h>
+#include <netinet/in.h>
 
 const uint32_t IP_OPTMAX      = 40;
 const uint32_t TCP_OPTLENMAX  = 40;
@@ -80,10 +84,6 @@ struct raw_ip6_hdr_t {
     struct in6_addr dst;      /* destination address */
 };
 
-#define VTH_PRIORITY(vh)  ((ntohs((vh)->vth_pri_cfi_vlan) & 0xe000) >> 13)
-#define VTH_CFI(vh)       ((ntohs((vh)->vth_pri_cfi_vlan) & 0x0100) >> 12)
-#define VTH_VLAN(vh)      ((unsigned short)(ntohs((vh)->vth_pri_cfi_vlan) & 0x0FFF))
-
 struct vlan_tag_hdr_t
 {
     uint16_t pri_cfi_vlan;
@@ -102,6 +102,8 @@ struct vlan_eth_llc_other_t
     uint8_t org_code[3];
     uint16_t proto_id;
 };
+
+#define VLAN_LEN_ALL (sizeof(vlan_tag_hdr_t) + sizeof(vlan_eth_llc_t) + sizeof(vlan_eth_llc_other_t))
 
 struct options_t
 {

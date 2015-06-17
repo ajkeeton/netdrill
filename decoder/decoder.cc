@@ -1,11 +1,9 @@
 
 #include <pcap.h>
 #include <arpa/inet.h>
-#include "tmod.h"
 #include "decoder.h"
 
 extern tmod_stats_t stats;
-extern ssn_stats_t ssn_stats;
 
 void tmod_decode_ip4(
     tmod_pkt_t *stream, const uint8_t *pkt, uint32_t len);
@@ -18,8 +16,6 @@ void tmod_decode_ip4_options(
 void tmod_decode_ip6_options(
     tmod_pkt_t *stream, const uint8_t *pkt, uint32_t len);
 void tmod_decode_tcp_options(
-    tmod_pkt_t *stream, const uint8_t *pkt, uint32_t len);
-void tmod_decode_gre(
     tmod_pkt_t *stream, const uint8_t *pkt, uint32_t len);
 
 static inline uint32_t iph_verhl_to_ver(uint32_t verhl) 
@@ -46,7 +42,7 @@ void tmod_decode_tcp(tmod_pkt_t *stream, const uint8_t *pkt, uint32_t len)
 
     raw_tcp_hdr_t *rawtcp = (raw_tcp_hdr_t*)pkt;
 
-    uint32_t hlen = TCP_OFFSET(rawtcp) << 2;
+    uint32_t hlen = tcph_get_offset(rawtcp->offset) << 2;
 
     if(hlen < HDR_TCP_LEN)
         return;
@@ -213,7 +209,7 @@ void tmod_decode_ip4(tmod_pkt_t *stream, uint8_t *pkt, uint32_t len)
                 return;
 
             case IPPROTO_GRE:
-                tmod_decode_gre(stream, pkt + hlen, ip_len);
+                //tmod_decode_gre(stream, pkt + hlen, ip_len);
                 break;
 
             default:
@@ -235,8 +231,6 @@ void tmod_decode_ip6(tmod_pkt_t *stream, uint8_t *pkt, uint32_t len)
     stats.ip6++;
     #warning ipv6 decoder not yet implemented
 }
-
-#define VLAN_LEN_ALL (sizeof(vlan_tag_hdr_t) + sizeof(vlan_eth_llc_t) + sizeof(vlan_eth_llc_other_t))
 
 void tmod_decode_vlan(tmod_pkt_t *stream, uint8_t *pkt, uint32_t len)
 {
@@ -270,21 +264,21 @@ void tmod_decode_vlan(tmod_pkt_t *stream, uint8_t *pkt, uint32_t len)
             switch(ntohs(stream->vlan.ehllcother->proto_id)) {
                 case ETHER_TYPE_IP:
                     tmod_decode_ip4(stream, 
-                             pkt + LEN_VLAN_LLC_OTHER,
-                             len - LEN_VLAN_LLC_OTHER);
+                             pkt + VLAN_LEN_ALL,
+                             len - VLAN_LEN_ALL);
                     return;
 
                 case ETHER_TYPE_IPV6:
                     tmod_decode_ip6(stream,
-                             (uint8_t*)pkt + LEN_VLAN_LLC_OTHER,
-                             len - LEN_VLAN_LLC_OTHER);
+                             (uint8_t*)pkt + VLAN_LEN_ALL,
+                             len - VLAN_LEN_ALL);
                     return;
 
                 case ETHER_TYPE_VLAN:
                     tmod_decode_vlan(
                                 stream,
-                                (uint8_t*)pkt + LEN_VLAN_LLC_OTHER,
-                                len - LEN_VLAN_LLC_OTHER);
+                                (uint8_t*)pkt + VLAN_LEN_ALL,
+                                len - VLAN_LEN_ALL);
                     return;
 
                 default:

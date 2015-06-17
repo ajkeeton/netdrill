@@ -7,11 +7,12 @@ set(tester_SRCS
 add_executable(tester ${tester_SRCS})
 
 target_link_libraries(tester 
-    crypt util pthread rt nsl resolv m c dl ssl pcap dnet pcre restream)
+    crypt util pthread rt nsl resolv m c dl ssl pcap dnet pcre restream decoder logger)
 
 set(CMAKE_CXX_FLAGS "-g -fvisibility=hidden -fno-strict-aliasing -Wall -fPIC -Wl,-E -fstack-protector -fno-strict-aliasing -pipe -fstack-protector -D_LARGEFILE_SOURCE")
 
 include_directories(
     ../decoder
-   .
+    ../restream
+    ../logger
 )

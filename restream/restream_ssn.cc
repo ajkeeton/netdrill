@@ -2,7 +2,7 @@
 #include "restream.h"
 
 #define MAX_QUEUED_SEGMENTS 128
-extern restream_stats_t stats;
+extern tmod_stats_t stats;
 extern ssn_stats_t ssn_stats;
 
 inline bool restream_ssn_t::is_client_side()
@@ -10,7 +10,7 @@ inline bool restream_ssn_t::is_client_side()
     return packet_flags & PKT_FROM_CLIENT;
 }
 
-restream_ssn_t *restream_tracker_t::find(const restream_pkt_t &packet)
+restream_ssn_t *restream_tracker_t::find(const tmod_pkt_t &packet)
 {
     ssn_tbl_key_t key(packet);
 
@@ -26,7 +26,7 @@ restream_ssn_t *restream_tracker_t::find(const restream_pkt_t &packet)
     return (restream_ssn_t*)it->second.data;
 }
 
-restream_ssn_t *restream_tracker_t::save(const restream_pkt_t &packet)
+restream_ssn_t *restream_tracker_t::save(const tmod_pkt_t &packet)
 {
     ssn_stats.inserts++;
     ssn_tbl_key_t key(packet);
@@ -41,7 +41,7 @@ restream_ssn_t *restream_tracker_t::save(const restream_pkt_t &packet)
     return ssn;
 }
 
-void restream_tracker_t::clear(const restream_pkt_t &packet)
+void restream_tracker_t::clear(const tmod_pkt_t &packet)
 {
     ssn_tbl_t::iterator it = table.find(ssn_tbl_key_t(packet));
 
@@ -131,7 +131,7 @@ void restream_ssn_t::flush()
     //server.flush();
 }
 
-ssn_state_t restream_ssn_t::close_session(const restream_pkt_t &packet,
+ssn_state_t restream_ssn_t::close_session(const tmod_pkt_t &packet,
                                           tcp_endpoint_t &endpoint)
 {
 // XXX Untested and incomplete
@@ -182,7 +182,7 @@ ssn_state_t restream_ssn_t::close_session(const restream_pkt_t &packet,
 }
 
 ssn_state_t restream_ssn_t::queue(
-    tcp_endpoint_t &ep, const restream_pkt_t &packet)
+    const tmod_pkt_t &packet, tcp_endpoint_t &ep)
 {
     ssn_state_t complete = SSN_STATE_OK;
     uint32_t sequence = ntohl(packet.tcph.rawtcp->seq);
@@ -258,33 +258,35 @@ segment_t *restream_ssn_t::next_client()
     return NULL;
 }
 
-segment_t *restream_ssn_t::next(bool is_client)
+segment_t *restream_ssn_t::next()
 {
-    if(is_client)
+    if(packet_flags == PKT_FROM_CLIENT)
         return next_client();
-
-    return next_server();
+    else
+        return next_server();
 }
 
 void restream_ssn_t::pop_server() 
 {
-    server.segments.pop_front();
+    if(server.segments.size())
+        server.segments.pop_front();
 }
 
 void restream_ssn_t::pop_client() 
 {
-    client.segments.pop_front();
+    if(client.segments.size())
+        client.segments.pop_front();
 }
 
-void restream_ssn_t::pop(bool is_client)
+void restream_ssn_t::pop()
 {
-    if(is_client)
+    if(packet_flags == PKT_FROM_CLIENT)
         pop_client();
-
-    pop_server();
+    else
+        pop_server();
 }
 #if 0
-ssn_state_t tcp_endpoint_t::queue(const restream_pkt_t &packet)
+ssn_state_t tcp_endpoint_t::queue(const tmod_pkt_t &packet)
 {
     // TODO Need to add PAWS check
 
@@ -374,7 +376,7 @@ ssn_state_t tcp_endpoint_t::queue(const restream_pkt_t &packet)
 #endif
 
 ssn_state_t restream_ssn_t::update_session(
-    const restream_pkt_t &packet, tcp_endpoint_t &endpoint)
+    const tmod_pkt_t &packet, tcp_endpoint_t &endpoint)
 {
     /* Check if this packet is shutting down a TCP session */
     if(packet.tcph.rawtcp->flags & TCP_FLAG_FIN || 
@@ -385,10 +387,10 @@ ssn_state_t restream_ssn_t::update_session(
         return close_session(packet, endpoint);
     }
 
-    return queue(endpoint, packet);
+    return queue(packet, endpoint);
 }
 
-ssn_state_t restream_ssn_t::add_session(const restream_pkt_t &packet)
+ssn_state_t restream_ssn_t::add_session(const tmod_pkt_t &packet)
 {
     raw_tcp_hdr_t *tcph = packet.tcph.rawtcp;
 
@@ -448,7 +450,7 @@ ssn_state_t restream_ssn_t::add_session(const restream_pkt_t &packet)
     return SSN_STATE_OK;
 }
 
-ssn_state_t restream_ssn_t::update(const restream_pkt_t &packet)
+ssn_state_t restream_ssn_t::update(const tmod_pkt_t &packet)
 {
     if(!packet.tcph.rawtcp) 
         return SSN_STATE_OK; 
@@ -457,7 +459,7 @@ ssn_state_t restream_ssn_t::update(const restream_pkt_t &packet)
 
     if(!(session_flags & SSN_ESTABLISHED)) {
         if(SSN_STATE_OK == add_session(packet)) {
-            // call callback with it
+            
         }
         else {
             // ...
@@ -477,7 +479,7 @@ ssn_state_t restream_ssn_t::update(const restream_pkt_t &packet)
             return update_session(packet, client);
         }
     }
-    else {
+    else if(packet.ip6h.rawiph) {
         if(mem4eq(packet.ip6h.rawiph->src.s6_addr32, server.ip)) {
             packet_flags = PKT_FROM_SERVER;
             return update_session(packet, server);
@@ -486,6 +488,9 @@ ssn_state_t restream_ssn_t::update(const restream_pkt_t &packet)
             packet_flags = PKT_FROM_CLIENT;
             return update_session(packet, client);
         }
+    }
+    else {
+        // XXX No IP header. Handling?
     }
 }
 

@@ -6,10 +6,10 @@
 #include <arpa/inet.h>
 #include "restream.h"
 
-restream_stats_t stats;
+tmod_stats_t stats;
 ssn_stats_t ssn_stats;
 
-void restream_dump_packet(const restream_pkt_t &pkt) 
+void restream_dump_packet(const tmod_pkt_t &pkt) 
 {
     char srcip[128], dstip[128];
     uint32_t tmpip = ntohl(pkt.iph.rawiph->src.s_addr);
@@ -30,22 +30,23 @@ void restream_print_stats()
     printf("Sessions:       %ld\n", ssn_stats.inserts);
 }
 
-restream_ctx_t *restream_new(restream_cb_t callback)
+restream_ctx_t *restream_new(restream_cb_t cb)
 {
     restream_ctx_t *ret = new restream_ctx_t;
-    ret->tracker.init(callback);
+    ret->tracker.init(cb);
+    ret->callback = cb;
 
     return ret;
 }
 
 void restream_packet_process(
     restream_ctx_t *ctx,
-    restream_pkt_t &packet)
+    tmod_pkt_t &packet)
 {
     ctx->update(packet);
 }
 
-void restream_ctx_t::update(const restream_pkt_t &packet)
+void restream_ctx_t::update(const tmod_pkt_t &packet)
 {
     // dump_packet(packet);
 
@@ -66,5 +67,14 @@ void restream_ctx_t::update(const restream_pkt_t &packet)
 
     stats.packets++;
 
-    ssn->update(packet);
+    if(ssn->update(packet) == SSN_STATE_CAN_FLUSH) {
+        segment_t *segment;
+
+        while((segment = ssn->next())) {
+
+            callback(segment->buffer, segment->length);
+
+            ssn->pop();
+        }
+    }
 }
