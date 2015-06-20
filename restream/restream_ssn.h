@@ -303,8 +303,8 @@ public:
         // I'm inclined to buffer the entire packet instead.
 
         memcpy(buffer, pkt.payload, pkt.payload_size);
-
         length = pkt.payload_size;
+        sequence = ntohl(pkt.tcph.rawtcp->seq);
     }
 };
 

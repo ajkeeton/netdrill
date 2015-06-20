@@ -187,19 +187,23 @@ ssn_state_t restream_ssn_t::queue(
     ssn_state_t complete = SSN_STATE_OK;
     uint32_t sequence = ntohl(packet.tcph.rawtcp->seq);
     
+    // printf("Next: %u vs %u\n", ep.next_seq, sequence);
+
     if(ep.next_seq == sequence)
         complete = SSN_STATE_CAN_FLUSH;
 
     if(ep.segments.size() >= MAX_QUEUED_SEGMENTS) {
+        // XXX Trashing all segments. Revisit what to do when we have a gap.
         ep.segments.clear();
         ssn_stats.drops++;
-        return SSN_STATE_OK;
+        return complete;
     }
 
     if(!ep.segments.size()) {
         ep.segments.push_front(packet);
         ep.next_seq = sequence + packet.payload_size;
-        return SSN_STATE_CAN_FLUSH;
+
+        return complete;
     }
 
     list<segment_t>::iterator it = ep.segments.begin();
@@ -207,17 +211,15 @@ ssn_state_t restream_ssn_t::queue(
     /* Queue up new segment. */
     for(; it != ep.segments.end(); it++) {
         if(it->sequence == sequence) {
-            if(it->length != packet.payload_size) {
-                /* Possible evasion! */
-                // TODO
-                break;
-            }
-            
-            /* Two packets with the same sequence... overwrite first one. */
+            // XXX Revisit
+            /* Two packets with the same sequence... overwrite first one.
+               This definitely opens up an evasion case */
             *it = segment_t(packet);
+
             /* In case the lengths were different, update next seq: */
             ep.next_seq = sequence + packet.payload_size;
-            break;
+            
+            return complete;
         }
         if(it->sequence > sequence)
             break;
@@ -251,6 +253,7 @@ segment_t *restream_ssn_t::next_client()
     segment_t *seg = &client.segments.front();
 
     if(seg && seg->sequence <= client.next_seq) {
+        // printf("Client flushing %u. %u queued.\n", seg->sequence, client.segments.size());
         client.next_seq = seg->sequence + seg->length;
         return seg;
     }
@@ -431,7 +434,6 @@ ssn_state_t restream_ssn_t::add_session(const tmod_pkt_t &packet)
         //if(client.ip == pkt.ip && client.port == pkt.port)
         //    bail
 
-        session_flags = SSN_ESTABLISHED;
         packet_flags = PKT_FROM_SERVER;
 
         server.state = ENDPOINT_ESTABLISHED;
@@ -439,13 +441,19 @@ ssn_state_t restream_ssn_t::add_session(const tmod_pkt_t &packet)
 
         server.next_seq = ntohl(tcph->seq) + 1;
     }
+    else if(server.state == ENDPOINT_ESTABLISHED &&
+            tcph->src_port == client.port &&
+            tcph->flags & TCP_FLAG_ACK) {
+        session_flags = SSN_ESTABLISHED;
+        queue(packet, client);
+    }
     else {
-        // Something is broken
+        // XXX Something is broken, tick stat counter
         printf("Broken at %d\n", __LINE__);
         return SSN_STATE_IGNORE; //abort();
     }
 
-    printf("SEQs: %u and %u\n", client.next_seq, server.next_seq);
+    // printf("SEQs: %u and %u\n", client.next_seq, server.next_seq);
 
     return SSN_STATE_OK;
 }
@@ -459,7 +467,7 @@ ssn_state_t restream_ssn_t::update(const tmod_pkt_t &packet)
 
     if(!(session_flags & SSN_ESTABLISHED)) {
         if(SSN_STATE_OK == add_session(packet)) {
-            
+            return SSN_STATE_OK;
         }
         else {
             // ...
@@ -492,5 +500,7 @@ ssn_state_t restream_ssn_t::update(const tmod_pkt_t &packet)
     else {
         // XXX No IP header. Handling?
     }
+
+    return SSN_STATE_OK;
 }
 

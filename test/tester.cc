@@ -1,7 +1,6 @@
 #include "decoder.h"
 #include "restream.h"
-
-void hex_dump(const uint8_t *data, int size);
+#include "log.h"
 
 #define TEST(passfail) do { if(!passfail) printf("Failed @ %d\n",__LINE__); } while(0) 
 
@@ -58,7 +57,7 @@ int test_pcap(restream_ctx_t *ctx, char *file, char *bpfstr)
 
 void packet_cb(uint8_t *data, uint32_t length)
 {
-    printf("Packet size: %d\n", length);
+    if(length) printf("Packet size: %d\n", length);
     hex_dump(data, length);
 
     // Run it through the logger to dump payloads

@@ -67,14 +67,15 @@ void restream_ctx_t::update(const tmod_pkt_t &packet)
 
     stats.packets++;
 
-    if(ssn->update(packet) == SSN_STATE_CAN_FLUSH) {
-        segment_t *segment;
+    if(ssn->update(packet) != SSN_STATE_CAN_FLUSH) 
+        return;
 
-        while((segment = ssn->next())) {
+    segment_t *segment;
 
-            callback(segment->buffer, segment->length);
+    while((segment = ssn->next())) {
 
-            ssn->pop();
-        }
+        callback(segment->buffer, segment->length);
+
+        ssn->pop();
     }
 }
