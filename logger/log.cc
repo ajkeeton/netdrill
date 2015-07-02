@@ -1,9 +1,15 @@
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <time.h>
+#include <sys/stat.h>
+#include "logger.h"
 
-void hex_dump(const uint8_t *data, int size)
+const char *DEFAULT_SAVEFILE = "/tmp/tmod.log";
+
+void tmod_hex_dump(FILE *fd, const uint8_t *data, uint32_t size)
 {
     if(size <= 0) return;
 
@@ -37,7 +43,7 @@ void hex_dump(const uint8_t *data, int size)
 
         if (n % 16 == 0) { 
             // line completed
-            printf("[%4.4s]   %-50.50s  %s\n", addrstr, hexstr, charstr);
+            fprintf(fd, "[%4.4s]   %-50.50s  %s\n", addrstr, hexstr, charstr);
             hexstr[0] = 0;
             charstr[0] = 0;
         } 
@@ -51,9 +57,67 @@ void hex_dump(const uint8_t *data, int size)
 
     if (strlen(hexstr) > 0) {
         // print rest of buffer if not empty 
-        printf("[%4.4s]   %-50.50s  %s\n", addrstr, hexstr, charstr);
+        fprintf(fd, "[%4.4s]   %-50.50s  %s\n", addrstr, hexstr, charstr);
     }
 
-    fflush(stdout);
+    //fflush(fd);
 }
 
+void tmod_hex_dump(const uint8_t *data, uint32_t size)
+{
+    tmod_hex_dump(stdout, data, size);
+}
+
+void tmod_logger_t::payload_save(uint8_t *data, uint32_t length)
+{
+
+}
+
+void tmod_logger_t::payload_save_hex(uint8_t *data, uint32_t length)
+{
+
+}
+
+void tmod_logger_t::save_pcap(uint8_t *data, uint32_t length)
+{
+
+}
+
+void tmod_logger_t::save_hex(uint8_t *data, uint32_t length)
+{
+    tmod_hex_dump(logfile, data, length);
+}
+
+tmod_logger_t::tmod_logger_t()
+{
+    char filename[strlen(DEFAULT_SAVEFILE) + 256];
+
+    sprintf(filename, "%s.0", DEFAULT_SAVEFILE);
+
+    /* Resolve case where there are duplicate filenames */
+    struct stat st; 
+    uint32_t x = 0;
+
+    while(stat(filename, &st) == 0) {
+        sprintf(filename, "%s.%u", DEFAULT_SAVEFILE, x++);
+    }
+
+    logfile = fopen(filename, "w");
+    
+    if(!logfile) {
+        printf("Could not open %s for logging. Bailing\n", filename);
+        /* XXX No good. Refactor. */
+        exit(-1);
+    }
+}
+
+tmod_logger_t::tmod_logger_t(char *filename)
+{
+    logfile = fopen(filename, "w");
+    
+    if(!logfile) {
+        printf("Could not open %s for logging. Bailing\n", filename);
+        /* XXX refactor. */
+        exit(-1);
+    }
+}

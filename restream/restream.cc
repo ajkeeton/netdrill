@@ -30,13 +30,10 @@ void restream_print_stats()
     printf("Sessions:       %ld\n", ssn_stats.inserts);
 }
 
-restream_ctx_t *restream_new(restream_cb_t cb)
+restream_ctx_t::restream_ctx_t(void *user, restream_cb_t cb)
 {
-    restream_ctx_t *ret = new restream_ctx_t;
-    ret->tracker.init(cb);
-    ret->callback = cb;
-
-    return ret;
+    user_data = user;
+    callback = cb;
 }
 
 void restream_packet_process(
@@ -48,8 +45,6 @@ void restream_packet_process(
 
 void restream_ctx_t::update(const tmod_pkt_t &packet)
 {
-    // dump_packet(packet);
-
     if(!packet.iph.rawiph || !packet.tcph.rawtcp)
         return;
 
@@ -67,15 +62,16 @@ void restream_ctx_t::update(const tmod_pkt_t &packet)
 
     stats.packets++;
 
-    if(ssn->update(packet) != SSN_STATE_CAN_FLUSH) 
-        return;
+    ssn_state_t state = ssn->update(packet);
 
     segment_t *segment;
 
     while((segment = ssn->next())) {
-
-        callback(segment->buffer, segment->length);
+        callback(user_data, this, segment->buffer, segment->length);
 
         ssn->pop();
     }
+
+    if(state == SSN_STATE_CLOSED)
+        tracker.clear(packet);
 }

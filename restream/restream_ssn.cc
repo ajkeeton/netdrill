@@ -31,7 +31,7 @@ restream_ssn_t *restream_tracker_t::save(const tmod_pkt_t &packet)
     ssn_stats.inserts++;
     ssn_tbl_key_t key(packet);
 
-    restream_ssn_t *ssn = new restream_ssn_t(callback);
+    restream_ssn_t *ssn = new restream_ssn_t();
 
     time_t timeout = time(NULL);
     timeouts.insert(std::pair<time_t, ssn_tbl_key_t>(timeout, key));
@@ -87,42 +87,6 @@ tcp_endpoint_t::tcp_endpoint_t()
     ip[0] = ip[1] = ip[2] = ip[3] = 0;
     state = ENDPOINT_NONE;
 }
-
-#if 0
-void tcp_endpoint_t::flush_packet(const segment_t &seg)
-{
-    //callback(seg.buffer, seg.length);
-}
-
-void tcp_endpoint_t::flush()
-{
-    list<segment_t>::iterator it = segments.begin();
-
-    do {
-        if(next_seq != it->seq) {
-            printf("%u != %u\n", next_seq, it->seq);
-            break;
-        }
-
-        next_seq = htonl(ntohl(next_seq) + it->length);
-
-        /*
-        if(buffer_only) {
-            callback(buffer);
-        }
-        else 
-        */
-        {
-            flush_packet(*it);
-        }
-
-        it++;
-    } while(1);
-
-    if(it != segments.begin())
-        segments.erase(segments.begin(), it);
-}
-#endif
 
 void restream_ssn_t::flush()
 {
@@ -288,95 +252,6 @@ void restream_ssn_t::pop()
     else
         pop_server();
 }
-#if 0
-ssn_state_t tcp_endpoint_t::queue(const tmod_pkt_t &packet)
-{
-    // TODO Need to add PAWS check
-
-    if(!packet.payload_size) {
-        return SSN_STATE_OK;
-    }
-
-    uint32_t sequence = ntohl(packet.tcph.rawtcp->seq);
-
-    /* Packet is out of order! */
-   
-    // XXX improve - can better determine if we should start at the head or tail of
-    // the list. Just walk from the head for now.
-
-    list<segment_t>::iterator segment,
-                              prev_segment;
-    segment = prev_segment = segments.begin();
-
-    if(segments.size() == 0) {
-        segments.insert(segment, segment_t(packet));
-
-        /* Are we in order? */
-        if(sequence == next_seq) {
-            /* Splendid. */
-            next_seq = htonl(ntohl(next_seq) + packet.payload_size);
-            flush();
-        }
-
-        return SSN_STATE_OK;
-    }
-
-    /* Are we in order? */
-    if(sequence == next_seq) {
-        /* Splendid. */
-        next_seq = htonl(ntohl(next_seq) + packet.payload_size);
-        segments.insert(segment, segment_t(packet));
-        flush();
-
-        return SSN_STATE_OK;
-    }
- 
-    do {
-        #if 0
-        /* Overlap? */
-        if() {
-            if(policy == LINUX) {
-            }
-            else if(policy == WINDOWS) {
-            }
-        }
-        #endif
-        if(segment == segments.end()) {
-            segments.insert(segment, segment_t(packet));
-            break;
-        }
-
-        if(sequence < segment->seq) {
-            printf("Q'ing %u\n", ntohl(sequence));
-            hex_dump(packet.raw_pkt, packet.raw_size);
-            segments.insert(segment, segment_t(packet));
-            break;
-        }
-        if(sequence <= prev_segment->seq + prev_segment->length) {
-            stats.overlaps++;
-            /* TODO Overlap */
-            abort();
-        }
-
-        if(sequence > segment->seq) {
-            prev_segment = segment;
-            segment++;
-            continue;
-        }
-        else {
-            segments.insert(segment, segment_t(packet));
-            break;
-        }
-
-        // XXX update window size?
-    } while(1);
-
-    if(packet.tcph.rawtcp->flags & TCP_FLAG_ACK) 
-        flush();
-
-    return SSN_STATE_OK;
-}
-#endif
 
 ssn_state_t restream_ssn_t::update_session(
     const tmod_pkt_t &packet, tcp_endpoint_t &endpoint)

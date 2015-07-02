@@ -5,8 +5,6 @@
 #include <list>
 #include "decoder.h"
 
-typedef void (*restream_cb_t)(uint8_t *data, uint32_t length);
-
 using namespace std;
 
 const time_t TIMEOUT_DEFAULT = 30;
@@ -299,7 +297,7 @@ public:
     segment_t(const tmod_pkt_t &pkt) {
         if(pkt.raw_size > JUMBO_MTU) abort();
 
-        // XXX Do we want to track the original packet somehow?
+        // XXX Track the original packet?
         // I'm inclined to buffer the entire packet instead.
 
         memcpy(buffer, pkt.payload, pkt.payload_size);
@@ -316,7 +314,6 @@ public:
     uint32_t ip[4];
     uint16_t port;
     list<segment_t> segments;
-    restream_cb_t callback;
 
     tcp_endpoint_t();
 #if 0
@@ -346,17 +343,13 @@ class restream_ssn_t
     bool is_client_side();
     ssn_state_t queue(const tmod_pkt_t &pkt, tcp_endpoint_t &ep);
     void flush(tcp_endpoint_t &ep);
-    //void flush_packet(const segment_t &seg);
 
-    restream_ssn_t();
     restream_ssn_t &operator=(const restream_ssn_t *ssn);
 public:
 
-    restream_ssn_t(restream_cb_t cb) {
+    restream_ssn_t() {
         packet_flags = session_flags = 0;
         gettimeofday(&time_start, NULL);
-        client.callback = cb;
-        server.callback = cb;
     }
     ~restream_ssn_t() {
         flush();
@@ -376,13 +369,11 @@ class restream_tracker_t
     ssn_tbl_timeout_t timeouts;
     ssn_tbl_t table;
     time_t timeout;
-    restream_cb_t callback;
 
 public:
-    restream_tracker_t() { timeout = TIMEOUT_DEFAULT; callback = NULL; }
+    restream_tracker_t() { timeout = TIMEOUT_DEFAULT; }
     restream_ssn_t *find(const tmod_pkt_t &packet);
     restream_ssn_t *save(const tmod_pkt_t &packet);
     void clear(const tmod_pkt_t &packet);
     void update_timeouts();
-    void init(restream_cb_t cb) { callback = cb; }
 };
