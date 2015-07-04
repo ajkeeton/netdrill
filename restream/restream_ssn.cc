@@ -98,11 +98,8 @@ void restream_ssn_t::flush()
 ssn_state_t restream_ssn_t::close_session(const tmod_pkt_t &packet,
                                           tcp_endpoint_t &endpoint)
 {
-// XXX Untested and incomplete
-// What about out of order teardowns?
-
     int flags = packet.tcph.rawtcp->flags;
-    tcp_endpoint_t *sender, *receiver;
+    tcp_endpoint_t *sender, *receiver, *peer;
 
     if(packet_flags == PKT_FROM_SERVER) {
         receiver = &client;
@@ -113,32 +110,77 @@ ssn_state_t restream_ssn_t::close_session(const tmod_pkt_t &packet,
         sender = &client;
     }
 
+    if(session_state == SSN_STATE_CLIENT_CLOSING) {
+        peer = &client;
+    }
+    else if(session_state == SSN_STATE_SERVER_CLOSING) {
+        peer = &server;
+    }
+    else if(sender == &client) {
+        session_state = SSN_STATE_CLIENT_CLOSING;
+        peer = &client;
+    }   
+    else {
+        session_state = SSN_STATE_SERVER_CLOSING;
+        peer = &server;
+    }
+
+    /* XXX revisit */
     if(flags & TCP_FLAG_RST) {
         sender->state = ENDPOINT_CLOSED;
     }
 
-    if(sender->state = ENDPOINT_ESTABLISHED) {
-        sender->state = ENDPOINT_FIN_WAIT1;
-        receiver->state = ENDPOINT_CLOSE_WAIT;
-    }
-    else if(sender->state == ENDPOINT_FIN_WAIT1) {
-        if(flags & TCP_FLAG_ACK) {
-            sender->state = ENDPOINT_FIN_WAIT2;
+    switch(peer->state) {
+        case ENDPOINT_ESTABLISHED:
+            sender->state = ENDPOINT_FIN_WAIT1;
             receiver->state = ENDPOINT_CLOSE_WAIT;
-        }
-        if(flags & TCP_FLAG_FIN) {
-            sender->state = ENDPOINT_TIME_WAIT;
-            receiver->state = ENDPOINT_LAST_ACK;
-        }
-    }
-    else if(sender->state == ENDPOINT_FIN_WAIT2) {
-        if(flags & TCP_FLAG_ACK) {
-            sender->state = ENDPOINT_CLOSED;
-            receiver->state = ENDPOINT_CLOSED;
-            return SSN_STATE_CLOSED;
-        }
-    }
-    
+            break;
+        case ENDPOINT_FIN_WAIT1:
+            if(flags & TCP_FLAG_ACK) {
+                if(peer == receiver) {
+                    peer->state = ENDPOINT_FIN_WAIT2;
+                    sender->state = ENDPOINT_CLOSE_WAIT;
+                }
+                else {
+                    peer->state = ENDPOINT_CLOSED;
+                }
+            }
+            else if(flags & TCP_FLAG_FIN && peer == receiver) {
+                peer->state = ENDPOINT_CLOSED;
+                receiver->state = ENDPOINT_LAST_ACK;
+            }
+                
+            break;
+        case ENDPOINT_FIN_WAIT2:
+            if(peer == receiver && flags & TCP_FLAG_FIN) {
+                peer->state = ENDPOINT_TIME_WAIT;
+            }
+            else if(peer == sender) {
+                if(flags & TCP_FLAG_ACK) {
+                    peer->state = ENDPOINT_TIME_WAIT;
+                    receiver->state = ENDPOINT_CLOSED;
+                    session_state = SSN_STATE_CLOSED;
+                    return SSN_STATE_CLOSED;
+                }
+                else if(flags & TCP_FLAG_FIN) {
+                    peer->state = ENDPOINT_CLOSED;
+                    receiver->state = ENDPOINT_CLOSED;
+                    session_state = SSN_STATE_CLOSED;
+                    return SSN_STATE_CLOSED;
+                }
+            }
+            break;
+        case ENDPOINT_TIME_WAIT:
+            if(peer == sender && flags & TCP_FLAG_ACK) {
+                peer->state = ENDPOINT_CLOSED;
+                receiver->state = ENDPOINT_CLOSED;
+                return SSN_STATE_CLOSED;
+            }
+            break;
+        default:
+            break;
+    };
+
     if(sender->state == ENDPOINT_CLOSED && receiver->state == ENDPOINT_CLOSED)
         return SSN_STATE_CLOSED;
 
@@ -259,9 +301,8 @@ ssn_state_t restream_ssn_t::update_session(
     /* Check if this packet is shutting down a TCP session */
     if(packet.tcph.rawtcp->flags & TCP_FLAG_FIN || 
        packet.tcph.rawtcp->flags & TCP_FLAG_RST || 
-       session_flags & SSN_CLOSING) {
-        session_flags |= SSN_CLOSING;
-
+       session_state == SSN_STATE_CLIENT_CLOSING ||
+       session_state == SSN_STATE_SERVER_CLOSING) {
         return close_session(packet, endpoint);
     }
 
@@ -273,7 +314,7 @@ ssn_state_t restream_ssn_t::add_session(const tmod_pkt_t &packet)
     raw_tcp_hdr_t *tcph = packet.tcph.rawtcp;
 
     /* Check if first packet in 3WHS */
-    if(session_flags == SSN_UNKNOWN) {
+    if(session_state == SSN_STATE_UNKNOWN) {
         time_start.tv_sec = packet.timestamp.tv_sec;
         time_start.tv_usec = packet.timestamp.tv_usec;
 
@@ -284,7 +325,7 @@ ssn_state_t restream_ssn_t::add_session(const tmod_pkt_t &packet)
             puts("midstream?"); return SSN_STATE_IGNORE; //abort();
         }
         
-        session_flags = SSN_SEEN_SYN | SSN_HANDSHAKE;
+        session_state = SSN_STATE_SEEN_SYN;
         packet_flags = PKT_FROM_CLIENT;
 
         client.port = tcph->src_port;
@@ -302,7 +343,7 @@ ssn_state_t restream_ssn_t::add_session(const tmod_pkt_t &packet)
         client.next_seq = ntohl(tcph->seq) + 1;
         server.state = ENDPOINT_LISTEN;
     }
-    else if(session_flags & SSN_SEEN_SYN &&
+    else if(session_state == SSN_STATE_SEEN_SYN &&
             tcph->flags & TCP_FLAG_SYN && tcph->flags & TCP_FLAG_ACK) {
 
         // XXX Need to handle the case that this is a retransmitted SYN from the client
@@ -319,7 +360,7 @@ ssn_state_t restream_ssn_t::add_session(const tmod_pkt_t &packet)
     else if(server.state == ENDPOINT_ESTABLISHED &&
             tcph->src_port == client.port &&
             tcph->flags & TCP_FLAG_ACK) {
-        session_flags = SSN_ESTABLISHED;
+        session_state = SSN_STATE_ESTABLISHED;
         queue(packet, client);
     }
     else {
@@ -333,6 +374,13 @@ ssn_state_t restream_ssn_t::add_session(const tmod_pkt_t &packet)
     return SSN_STATE_OK;
 }
 
+static bool handle_handshake(ssn_state_t val)
+{
+    return (val == SSN_STATE_UNKNOWN) ||
+           (val == SSN_STATE_SEEN_SYN) ||
+           (val == SSN_STATE_HANDSHAKING);
+}
+
 ssn_state_t restream_ssn_t::update(const tmod_pkt_t &packet)
 {
     if(!packet.tcph.rawtcp) 
@@ -340,7 +388,7 @@ ssn_state_t restream_ssn_t::update(const tmod_pkt_t &packet)
 
     time_last_pkt = packet.timestamp;
 
-    if(!(session_flags & SSN_ESTABLISHED)) {
+    if(handle_handshake(session_state)) {
         if(SSN_STATE_OK == add_session(packet)) {
             return SSN_STATE_OK;
         }

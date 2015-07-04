@@ -254,14 +254,6 @@ public:
 typedef std::map<ssn_tbl_key_t, ssn_node_t> ssn_tbl_t; 
 typedef std::map<time_t, ssn_tbl_key_t> ssn_tbl_timeout_t; 
 
-#define SSN_UNKNOWN         0
-#define SSN_HANDSHAKE       1
-#define SSN_ESTABLISHED     1<<1
-#define SSN_CLOSING         1<<2
-#define SSN_SEEN_SYN        1<<3
-#define PKT_FROM_CLIENT     1
-#define PKT_FROM_SERVER     1<<1
-
 enum endpoint_state_t {
     ENDPOINT_NONE,
     ENDPOINT_LISTEN,
@@ -278,14 +270,32 @@ enum endpoint_state_t {
 };
 
 enum ssn_state_t {
+    SSN_STATE_UNKNOWN,
     SSN_STATE_OK,
     SSN_STATE_ERR,
     SSN_STATE_IGNORE,
-    SSN_STATE_OUT_OF_ORDER,
-    SSN_STATE_CLOSING,
+//    SSN_STATE_OUT_OF_ORDER,
+//    SSN_STATE_CLOSING,
+    SSN_STATE_CAN_FLUSH,
+    SSN_STATE_SEEN_SYN,
+    SSN_STATE_HANDSHAKING,
+    SSN_STATE_ESTABLISHED,
+    SSN_STATE_CLIENT_CLOSING,
+    SSN_STATE_SERVER_CLOSING,
     SSN_STATE_CLOSED,
-    SSN_STATE_CAN_FLUSH
 };
+
+#if 0
+#define SSN_UNKNOWN         0
+#define SSN_HANDSHAKE       1
+#define SSN_ESTABLISHED     1<<1
+#define SSN_CLIENT_CLOSING  1<<2
+#define SSN_SERVER_CLOSING  1<<3
+#define SSN_SEEN_SYN        1<<4
+#endif
+
+#define PKT_FROM_CLIENT     1
+#define PKT_FROM_SERVER     1<<1
 
 class segment_t
 {
@@ -325,7 +335,7 @@ public:
 
 class restream_ssn_t 
 {
-    uint64_t session_flags;
+    ssn_state_t session_state;
     uint64_t packet_flags;
     timeval time_start,
             time_last_pkt;
@@ -348,7 +358,8 @@ class restream_ssn_t
 public:
 
     restream_ssn_t() {
-        packet_flags = session_flags = 0;
+        packet_flags = 0;
+        session_state = SSN_STATE_UNKNOWN;
         gettimeofday(&time_start, NULL);
     }
     ~restream_ssn_t() {

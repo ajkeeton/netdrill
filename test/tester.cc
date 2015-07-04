@@ -49,7 +49,7 @@ int test_pcap(tester_ctx_t &ctx, char *ifaceorfile, bool online, char *bpfstr)
 
     if(strlen(bpfstr)) {
         if(pcap_compile(pcap, &bpf, bpfstr, 1, netmask) < 0) {
-            printf("Error compiling BPF %s\n", bpfstr);
+            printf("Error compiling BPF: %s\n", bpfstr);
             return -1;
         }
 
@@ -102,7 +102,7 @@ int main(int argc, char **argv)
     ctx.logger = new tmod_logger_t();
     // ctx.stats = new tmod_stats_t();
 
-    if(argc != 3) {
+    if(argc < 3) {
         usage_and_exit();
         return -1;
     }
@@ -112,13 +112,8 @@ int main(int argc, char **argv)
     uint32_t offset = 0;
     int i;
 
-    for(i=3; i<argc && offset < sizeof(bpf) - 1; i++) {
-        snprintf(bpf, sizeof(bpf) + strlen(bpf), "%s ", argv[i]);
-        //offset += strlen(argv[i]);
-        //strncat(bpf + offset, argv[i], sizeof(bpf) - offset)
-        //offset++;
-        //strncat(bpf + offset, " ", sizeof(bpf) - offset)
-    }
+    for(i=3; i<argc && offset < sizeof(bpf) - 1; i++) 
+        snprintf(bpf + strlen(bpf), sizeof(bpf) - strlen(bpf), "%s ", argv[i]);
 
     if(!strcmp(argv[1], "-r"))
         test_pcap(ctx, argv[2], true, bpf);

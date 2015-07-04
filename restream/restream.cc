@@ -60,8 +60,6 @@ void restream_ctx_t::update(const tmod_pkt_t &packet)
         }
     }
 
-    stats.packets++;
-
     ssn_state_t state = ssn->update(packet);
 
     segment_t *segment;
@@ -72,6 +70,8 @@ void restream_ctx_t::update(const tmod_pkt_t &packet)
         ssn->pop();
     }
 
-    if(state == SSN_STATE_CLOSED)
+    if(state == SSN_STATE_CLOSED) {
+        puts("Closing session"); 
         tracker.clear(packet);
+    }
 }
