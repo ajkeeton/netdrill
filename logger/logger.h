@@ -1,7 +1,10 @@
 #pragma once
+#include <stdio.h>
 
 void tmod_hex_dump(FILE *fp, const uint8_t *data, uint32_t size);
 void tmod_hex_dump(const uint8_t *data, uint32_t size);
+void tmod_hex_dump(
+    char *dst, uint32_t dst_len, const uint8_t *data, uint32_t size);
 
 class tmod_logger_t 
 {
@@ -15,3 +18,14 @@ public:
     tmod_logger_t(char *file_path);
     tmod_logger_t();
 };
+
+enum tmod_log_level_t 
+{
+    TMOD_LOG_ERROR,
+    TMOD_LOG_INFO,
+    TMOD_LOG_DEBUG
+};
+
+void TMOD_DEBUG(const char *args, ...);
+extern tmod_log_level_t tmod_log_level;
+

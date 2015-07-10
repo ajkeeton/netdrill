@@ -6,7 +6,7 @@
 #include <arpa/inet.h>
 #include "restream.h"
 
-tmod_stats_t stats;
+tmod_proto_stats_t stats;
 ssn_stats_t ssn_stats;
 
 void restream_dump_packet(const tmod_pkt_t &pkt) 
@@ -27,7 +27,14 @@ void restream_print_stats()
     printf("IP:             %ld\n", stats.ip4);
     printf("IP6:            %ld\n", stats.ip6);
     printf("TCP:            %ld\n", stats.tcp);
-    printf("Sessions:       %ld\n", ssn_stats.inserts);
+
+//    printf("HTTP:           %ld\n", stats.http);
+//    printf("SSL/TLS:        %ld\n", stats.tls);
+//    printf("Other:          %ld\n\n", stats.other);
+   
+    printf("Sessions:          %ld\n", ssn_stats.inserts);
+    printf("Drops:             %ld\n", ssn_stats.drops);
+    printf("Broken handshakes: %ld\n", ssn_stats.broken_handshakes);
 }
 
 restream_ctx_t::restream_ctx_t(void *user, restream_cb_t cb)
@@ -65,7 +72,7 @@ void restream_ctx_t::update(const tmod_pkt_t &packet)
     segment_t *segment;
 
     while((segment = ssn->next())) {
-        callback(user_data, this, segment->buffer, segment->length);
+        callback(user_data, this, &segment->packet);
 
         ssn->pop();
     }

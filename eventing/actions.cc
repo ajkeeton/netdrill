@@ -19,6 +19,9 @@ event_act_t *new_event_act(const char *act)
     if(!strncmp(act, "exec", 4)) {
         return new event_act_fork_exec_t(act + 5);
     }
+    //else if(!strncmp(act, "log_session", strlen("log_session"))) {
+    //    return new event_act_log_session_t();
+    //}
     else {
         return new event_act_t();
     }
@@ -51,7 +54,6 @@ char **event_act_alloc_environ(const tmod_pkt_t &pkt)
     envp[2] = new char[pkt.payload_size * 6];  /* 6 is an estimate */
     tmod_hex_dump(hex_str, sizeof(hex_str), pkt.payload, pkt.payload_size);
 
-    //char hex_str[65536]; // XXX figure out val to use based on payload
     snprintf(envp[2], pkt.payload_size * 6, "TMOD_HEX_PAYLOAD=%s", hex_str);
 
     envp[3] = NULL;

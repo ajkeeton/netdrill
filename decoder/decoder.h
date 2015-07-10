@@ -169,37 +169,11 @@ class tmod_pkt_t
 {
     const tmod_pkt_t &operator=(const tmod_pkt_t &pkt);
 public:
-    tmod_pkt_t() {
-        raw_pkt = NULL;
-        user = NULL;
-        payload = NULL;
-        raw_size = 0;
-        memset(&iph, 0, sizeof(iph));
-        memset(&ip6h, 0, sizeof(ip6h));
-        memset(&tcph, 0, sizeof(tcph));
-        memset(&vlan, 0, sizeof(vlan));
-    }
+    tmod_pkt_t();
     
-    #if 0
     /* Effectively a copy constructor. Chose this route since the packet buffer
        is managed outside of the class. */
-    void copy(tmod_pkt_t &pkt, uint8_t *buffer) {
-        memcpy(buffer, pkt.raw_pkt, pkt.raw_size);
-        raw_pkt = buffer;
-        raw_size = pkt.raw_size; 
-        timestamp = pkt.timestamp;
-        payload = raw_pkt + (pkt.payload - pkt.raw_pkt);
-        payload_size = pkt.payload_size;
-        user = pkt.user;
-
-        Need copy cons for all of these:
-
-        iph = pkt.iph;
-        ip6h = pkt.ip6h;
-        tcph = pkt.tcph;
-        vlan = pkt.vlan;
-    }
-    #endif
+    void copy(const tmod_pkt_t &pkt, uint8_t *buffer);
 
     const uint8_t *raw_pkt;
     uint32_t raw_size;
@@ -214,7 +188,7 @@ public:
     tmod_vlan_t vlan;
 };
 
-struct tmod_stats_t 
+struct tmod_proto_stats_t 
 {
     uint32_t 
         packets,
@@ -235,7 +209,7 @@ struct tmod_stats_t
         ;
 };
 
-extern tmod_stats_t stats;
+extern tmod_proto_stats_t stats;
 
 void hex_dump(const uint8_t *, int);
 

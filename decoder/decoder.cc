@@ -3,7 +3,7 @@
 #include <arpa/inet.h>
 #include "decoder.h"
 
-extern tmod_stats_t stats;
+extern tmod_proto_stats_t stats;
 
 void tmod_decode_ip4(
     tmod_pkt_t *stream, const uint8_t *pkt, uint32_t len);
@@ -361,3 +361,107 @@ bool decode(
     return true;
 }
 
+tmod_pkt_t::tmod_pkt_t()
+{ 
+    raw_pkt = NULL;
+    user = NULL;
+    payload = NULL;
+    raw_size = 0;
+    memset(&iph, 0, sizeof(iph));
+    memset(&ip6h, 0, sizeof(ip6h));
+    memset(&tcph, 0, sizeof(tcph));
+    memset(&vlan, 0, sizeof(vlan));
+}
+
+static uint8_t *generate_offset(
+    const void *raw_pkt, const void *top, const void *bottom)
+{
+    return (uint8_t*)raw_pkt + ((uint8_t*)top - (uint8_t*)bottom);
+}
+
+void tmod_pkt_t::copy(const tmod_pkt_t &pkt, uint8_t *buffer) 
+{
+    raw_pkt = buffer;
+    raw_size = pkt.raw_size; 
+    timestamp = pkt.timestamp;
+    payload = raw_pkt + (pkt.payload - pkt.raw_pkt);
+    payload_size = pkt.payload_size;
+    user = pkt.user;
+
+    iph = pkt.iph;
+
+    if(pkt.iph.rawiph) {
+        iph.rawiph = (raw_ip_hdr_t*)generate_offset(raw_pkt, pkt.iph.rawiph, pkt.raw_pkt);
+
+        if(pkt.iph.ip_frag_start)
+            iph.ip_frag_start = generate_offset(raw_pkt, pkt.iph.ip_frag_start, pkt.raw_pkt);
+        else
+            iph.ip_frag_start = NULL;
+
+        if(pkt.iph.payload)
+            iph.payload = generate_offset(raw_pkt, pkt.iph.payload, pkt.raw_pkt);
+        else
+            iph.payload = NULL;
+    
+        if(pkt.iph.ip_options_data) {
+            iph.ip_options_data = 
+                generate_offset(raw_pkt, pkt.iph.ip_options_data, pkt.raw_pkt);
+            memcpy(iph.ip_options, pkt.iph.ip_options, sizeof(iph.ip_options));
+        }
+        else
+            iph.ip_options_data = NULL;
+    }
+    else {
+        iph.rawiph = NULL;
+        iph.ip_frag_start = NULL;
+        iph.payload = NULL;
+        iph.ip_options_data = NULL;
+    }
+
+    ip6h = pkt.ip6h;
+
+    if(pkt.ip6h.rawiph)
+        ip6h.rawiph = (raw_ip6_hdr_t*)generate_offset(raw_pkt, pkt.ip6h.rawiph, pkt.raw_pkt);
+    else
+        ip6h.rawiph = NULL;
+
+    tcph = pkt.tcph;
+
+    if(pkt.tcph.rawtcp) {
+        tcph.rawtcp = 
+            (raw_tcp_hdr_t*)generate_offset(raw_pkt, pkt.tcph.rawtcp, pkt.raw_pkt);
+
+        if(pkt.tcph.ip_options_data)
+            tcph.ip_options_data = 
+                generate_offset(raw_pkt, pkt.tcph.ip_options_data, pkt.raw_pkt);
+        else
+            tcph.ip_options_data = NULL;
+
+        if(tcph.tcp_options_data)
+            tcph.tcp_options_data = 
+                generate_offset(raw_pkt, pkt.tcph.tcp_options_data, pkt.raw_pkt);
+        else
+            tcph.tcp_options_data = NULL;
+    }
+    else {
+        tcph.rawtcp = NULL;
+        tcph.ip_options_data = NULL;
+        tcph.tcp_options_data = NULL;
+    }
+
+    vlan = pkt.vlan;
+
+    if(pkt.vlan.raw) {
+        vlan.raw = (vlan_tag_hdr_t*)
+            generate_offset(raw_pkt, pkt.vlan.raw, pkt.raw_pkt);
+        vlan.ehllc = (vlan_eth_llc_t*)
+            generate_offset(raw_pkt, pkt.vlan.ehllc, pkt.raw_pkt);
+        vlan.ehllcother = (vlan_eth_llc_other_t*)
+            generate_offset(raw_pkt, pkt.vlan.ehllcother, pkt.raw_pkt);
+    }
+    else {
+        vlan.raw = NULL;
+        vlan.ehllc = NULL;
+        vlan.ehllcother = NULL;
+    }
+}

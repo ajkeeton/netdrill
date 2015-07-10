@@ -11,7 +11,7 @@ add_definitions(-fPIC)
 
 target_link_libraries(restream crypt util pthread rt nsl resolv m c dl dnet)
 
-include_directories(../decoder)
+include_directories(../decoder ../logger)
 
 set(CMAKE_CXX_FLAGS "-g")
 

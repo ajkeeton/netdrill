@@ -1,8 +1,9 @@
-
 #include "restream.h"
+#include "logger.h"
 
-#define MAX_QUEUED_SEGMENTS 128
-extern tmod_stats_t stats;
+#define MAX_QUEUED_SEGMENTS 16
+
+extern tmod_proto_stats_t stats;
 extern ssn_stats_t ssn_stats;
 
 inline bool restream_ssn_t::is_client_side()
@@ -68,7 +69,7 @@ void restream_tracker_t::update_timeouts()
 
         /* This is horrible. Refactor the timeout code */
         if(cur_time - tbl->second.last_access > timeout) {
-            printf("Cleaning node from session table: %u > %u\n",
+            TMOD_DEBUG("Cleaning node from session table: %u > %u\n",
                 cur_time - end->first, timeout);
             table.erase(end->second);
         }
@@ -193,12 +194,13 @@ ssn_state_t restream_ssn_t::queue(
     ssn_state_t complete = SSN_STATE_OK;
     uint32_t sequence = ntohl(packet.tcph.rawtcp->seq);
     
-    // printf("Next: %u vs %u\n", ep.next_seq, sequence);
+    // TMOD_DEBUG("Next: %u vs %u\n", ep.next_seq, sequence);
 
     if(ep.next_seq == sequence)
         complete = SSN_STATE_CAN_FLUSH;
 
     if(ep.segments.size() >= MAX_QUEUED_SEGMENTS) {
+        TMOD_DEBUG("Dropping @ %d\n", __LINE__);
         // XXX Trashing all segments. Revisit what to do when we have a gap.
         ep.segments.clear();
         ssn_stats.drops++;
@@ -206,6 +208,7 @@ ssn_state_t restream_ssn_t::queue(
     }
 
     if(!ep.segments.size()) {
+        TMOD_DEBUG("New segment @ %d. Packet %d\n", __LINE__, stats.packets);
         ep.segments.push_front(packet);
         ep.next_seq = sequence + packet.payload_size;
 
@@ -217,6 +220,7 @@ ssn_state_t restream_ssn_t::queue(
     /* Queue up new segment. */
     for(; it != ep.segments.end(); it++) {
         if(it->sequence == sequence) {
+            TMOD_DEBUG("Queuing @ %d\n", __LINE__);
             // XXX Revisit
             /* Two packets with the same sequence... overwrite first one.
                This definitely opens up an evasion case */
@@ -227,10 +231,13 @@ ssn_state_t restream_ssn_t::queue(
             
             return complete;
         }
-        if(it->sequence > sequence)
+        if(it->sequence > sequence) {
+            TMOD_DEBUG("Cur seq > new seq @ %d\n", __LINE__);
             break;
+        }
     } 
     
+    TMOD_DEBUG("Inserting @ %d\n", __LINE__);
     ep.segments.insert(it, packet);
 
     return complete;
@@ -259,7 +266,7 @@ segment_t *restream_ssn_t::next_client()
     segment_t *seg = &client.segments.front();
 
     if(seg && seg->sequence <= client.next_seq) {
-        // printf("Client flushing %u. %u queued.\n", seg->sequence, client.segments.size());
+        // TMOD_DEBUG("Client flushing %u. %u queued.\n", seg->sequence, client.segments.size());
         client.next_seq = seg->sequence + seg->length;
         return seg;
     }
@@ -303,7 +310,13 @@ ssn_state_t restream_ssn_t::update_session(
        packet.tcph.rawtcp->flags & TCP_FLAG_RST || 
        session_state == SSN_STATE_CLIENT_CLOSING ||
        session_state == SSN_STATE_SERVER_CLOSING) {
-        return close_session(packet, endpoint);
+
+        ssn_state_t retval = close_session(packet, endpoint);
+
+        if(retval == SSN_STATE_CLOSED)
+            ssn_stats.drops += client.segments.size() + server.segments.size();
+
+        return retval;
     }
 
     return queue(packet, endpoint);
@@ -312,6 +325,8 @@ ssn_state_t restream_ssn_t::update_session(
 ssn_state_t restream_ssn_t::add_session(const tmod_pkt_t &packet)
 {
     raw_tcp_hdr_t *tcph = packet.tcph.rawtcp;
+
+    TMOD_DEBUG("Handshake. Packet %d\n", stats.packets);
 
     /* Check if first packet in 3WHS */
     if(session_state == SSN_STATE_UNKNOWN) {
@@ -364,12 +379,16 @@ ssn_state_t restream_ssn_t::add_session(const tmod_pkt_t &packet)
         queue(packet, client);
     }
     else {
-        // XXX Something is broken, tick stat counter
-        printf("Broken at %d\n", __LINE__);
-        return SSN_STATE_IGNORE; //abort();
+        printf("Could not follow handshake. Missing packets? Packet %d\n", 
+            stats.packets);
+
+        // XXX Later, need to make this recoverable
+        session_state = SSN_STATE_IGNORE;
+        ssn_stats.broken_handshakes++;
+        return SSN_STATE_IGNORE; 
     }
 
-    // printf("SEQs: %u and %u\n", client.next_seq, server.next_seq);
+    // TMOD_DEBUG("SEQs: %u and %u\n", client.next_seq, server.next_seq);
 
     return SSN_STATE_OK;
 }
@@ -386,9 +405,15 @@ ssn_state_t restream_ssn_t::update(const tmod_pkt_t &packet)
     if(!packet.tcph.rawtcp) 
         return SSN_STATE_OK; 
 
+    /* XXX This will ignore a lot of traffic. Need to revise later. Maybe store
+           a flag for 'broken'  but still process traffic. */
+    if(session_state == SSN_STATE_IGNORE)
+        return SSN_STATE_IGNORE;
+
     time_last_pkt = packet.timestamp;
 
-    if(handle_handshake(session_state)) {
+    if((session_state == SSN_STATE_ESTABLISHED) && 
+        handle_handshake(session_state)) {
         if(SSN_STATE_OK == add_session(packet)) {
             return SSN_STATE_OK;
         }

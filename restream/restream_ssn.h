@@ -52,7 +52,8 @@ struct ssn_stats_t
         inserts,
         clears,
         misses,
-        drops;
+        drops,
+        broken_handshakes;
 };
 
 extern ssn_stats_t ssn_stats;
@@ -285,21 +286,13 @@ enum ssn_state_t {
     SSN_STATE_CLOSED,
 };
 
-#if 0
-#define SSN_UNKNOWN         0
-#define SSN_HANDSHAKE       1
-#define SSN_ESTABLISHED     1<<1
-#define SSN_CLIENT_CLOSING  1<<2
-#define SSN_SERVER_CLOSING  1<<3
-#define SSN_SEEN_SYN        1<<4
-#endif
-
 #define PKT_FROM_CLIENT     1
 #define PKT_FROM_SERVER     1<<1
 
 class segment_t
 {
 public:
+    tmod_pkt_t packet;
     uint8_t buffer[JUMBO_MTU];
     uint32_t length;
     uint32_t sequence;
@@ -307,12 +300,20 @@ public:
     segment_t(const tmod_pkt_t &pkt) {
         if(pkt.raw_size > JUMBO_MTU) abort();
 
-        // XXX Track the original packet?
-        // I'm inclined to buffer the entire packet instead.
-
-        memcpy(buffer, pkt.payload, pkt.payload_size);
         length = pkt.payload_size;
         sequence = ntohl(pkt.tcph.rawtcp->seq);
+        memcpy(buffer, pkt.raw_pkt, pkt.raw_size);
+        packet.copy(pkt, buffer);
+    }
+
+    const segment_t &operator=(const segment_t &s)
+    {
+        length = s.length;
+        sequence = s.sequence;
+        memcpy(buffer, s.buffer, length);
+        packet.copy(s.packet, buffer);
+
+        return *this;
     }
 };
 

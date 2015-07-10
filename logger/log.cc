@@ -5,11 +5,14 @@
 #include <ctype.h>
 #include <time.h>
 #include <sys/stat.h>
+#include <stdarg.h>
 #include "logger.h"
 
 const char *DEFAULT_SAVEFILE = "/tmp/tmod.log";
+tmod_log_level_t tmod_log_level = TMOD_LOG_ERROR;
 
-void tmod_hex_dump(FILE *fd, const uint8_t *data, uint32_t size)
+void tmod_hex_dump(
+    char *dst, uint32_t dst_len, const uint8_t *data, uint32_t size)
 {
     if(size <= 0) return;
 
@@ -20,6 +23,7 @@ void tmod_hex_dump(FILE *fd, const uint8_t *data, uint32_t size)
     char addrstr[10] = {0};
     char hexstr[16*3 + 5] = {0};
     char charstr[16*1 + 5] = {0};
+    uint32_t offset = 0;
 
     for (n= 1; n <= size; n++) {
         if (n % 16 == 1) {
@@ -43,7 +47,8 @@ void tmod_hex_dump(FILE *fd, const uint8_t *data, uint32_t size)
 
         if (n % 16 == 0) { 
             // line completed
-            fprintf(fd, "[%4.4s]   %-50.50s  %s\n", addrstr, hexstr, charstr);
+            offset += snprintf(dst + offset, 
+                dst_len - offset, "[%4.4s]   %-50.50s  %s\n", addrstr, hexstr, charstr);
             hexstr[0] = 0;
             charstr[0] = 0;
         } 
@@ -57,10 +62,17 @@ void tmod_hex_dump(FILE *fd, const uint8_t *data, uint32_t size)
 
     if (strlen(hexstr) > 0) {
         // print rest of buffer if not empty 
-        fprintf(fd, "[%4.4s]   %-50.50s  %s\n", addrstr, hexstr, charstr);
+        snprintf(dst + offset, dst_len - offset, "[%4.4s]   %-50.50s  %s\n", addrstr, hexstr, charstr);
     }
+}
 
-    //fflush(fd);
+void tmod_hex_dump(FILE *fd, const uint8_t *data, uint32_t size)
+{
+    char dstbuf[size*6];
+
+    tmod_hex_dump(dstbuf, sizeof(dstbuf), data, size);
+
+    fprintf(fd, dstbuf);
 }
 
 void tmod_hex_dump(const uint8_t *data, uint32_t size)
@@ -120,4 +132,20 @@ tmod_logger_t::tmod_logger_t(char *filename)
         /* XXX refactor. */
         exit(-1);
     }
+}
+
+void TMOD_DEBUG(const char *args, ...)
+{
+    if(TMOD_LOG_DEBUG >= tmod_log_level) return;
+
+    char buf[2048];
+    va_list ap;
+    int end;
+    va_start(ap, args);
+    end = vsnprintf(buf, sizeof(buf)-1, args, ap);
+    buf[end] = 0; 
+
+    printf("%s", buf);
+
+    va_end(ap);
 }

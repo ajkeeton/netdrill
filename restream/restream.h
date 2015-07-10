@@ -12,7 +12,7 @@
 class restream_ctx_t;
 
 typedef void (*restream_cb_t)
-    (void *user_ctx, restream_ctx_t *ctx, uint8_t *data, uint32_t length);
+    (void *user_ctx, restream_ctx_t *ctx, tmod_pkt_t *packet);
 
 class restream_ctx_t
 {
