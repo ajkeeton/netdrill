@@ -21,7 +21,7 @@ class restream_ctx_t
     restream_ctx_t();
 public:
     void update(const tmod_pkt_t &packet);
-    restream_tracker_t tracker;
+    ssn_tracker_t tracker;
     restream_ctx_t(void *user, restream_cb_t callback);
 };
 

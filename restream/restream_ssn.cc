@@ -1,84 +1,13 @@
 #include "restream.h"
 #include "logger.h"
 
-#define MAX_QUEUED_SEGMENTS 16
-
 extern tmod_proto_stats_t stats;
-extern ssn_stats_t ssn_stats;
+
+const uint32_t MAX_QUEUED_SEGMENTS = 128;
 
 inline bool restream_ssn_t::is_client_side()
 {
     return packet_flags & PKT_FROM_CLIENT;
-}
-
-restream_ssn_t *restream_tracker_t::find(const tmod_pkt_t &packet)
-{
-    ssn_tbl_key_t key(packet);
-
-    ssn_tbl_t::iterator it = table.find(key);
-    
-    if(it == table.end()) {
-        ssn_stats.misses++;
-        return NULL;
-    }
-
-    it->second.last_access = time(NULL);
-
-    return (restream_ssn_t*)it->second.data;
-}
-
-restream_ssn_t *restream_tracker_t::save(const tmod_pkt_t &packet)
-{
-    ssn_stats.inserts++;
-    ssn_tbl_key_t key(packet);
-
-    restream_ssn_t *ssn = new restream_ssn_t();
-
-    time_t timeout = time(NULL);
-    timeouts.insert(std::pair<time_t, ssn_tbl_key_t>(timeout, key));
-    table.insert(
-        std::pair<ssn_tbl_key_t, ssn_node_t>(key, ssn_node_t(ssn, timeout)));
-
-    return ssn;
-}
-
-void restream_tracker_t::clear(const tmod_pkt_t &packet)
-{
-    ssn_tbl_t::iterator it = table.find(ssn_tbl_key_t(packet));
-
-    if(it == table.end())
-        return;
-
-    timeouts.erase(it->second.timestamp);
-    table.erase(it);
-}
-
-void restream_tracker_t::update_timeouts()
-{
-    /* Build up a range of list nodes to timeout */
-    ssn_tbl_timeout_t::iterator end;
-
-    time_t cur_time = time(NULL);
-
-    /* Find the range of nodes in the list that need to be removed */
-    for(end = timeouts.begin(); 
-            end != timeouts.end() && (cur_time - end->first) > timeout; 
-            end++) {
-
-        ssn_tbl_t::iterator tbl = table.find(end->second);
-
-        /* This is horrible. Refactor the timeout code */
-        if(cur_time - tbl->second.last_access > timeout) {
-            TMOD_DEBUG("Cleaning node from session table: %u > %u\n",
-                cur_time - end->first, timeout);
-            table.erase(end->second);
-        }
-    }
-
-    /* Remove the blacklist node this element points to */
-    if(end != timeouts.begin()) {
-        timeouts.erase(timeouts.begin(), end);
-    }
 }
 
 tcp_endpoint_t::tcp_endpoint_t() 
@@ -87,13 +16,6 @@ tcp_endpoint_t::tcp_endpoint_t()
     port = 0;
     ip[0] = ip[1] = ip[2] = ip[3] = 0;
     state = ENDPOINT_NONE;
-}
-
-void restream_ssn_t::flush()
-{
-// TODO
-    //client.flush();
-    //server.flush();
 }
 
 ssn_state_t restream_ssn_t::close_session(const tmod_pkt_t &packet,
@@ -189,36 +111,45 @@ ssn_state_t restream_ssn_t::close_session(const tmod_pkt_t &packet,
 }
 
 ssn_state_t restream_ssn_t::queue(
-    const tmod_pkt_t &packet, tcp_endpoint_t &ep)
+    const tmod_pkt_t &packet, tcp_endpoint_t &talker, tcp_endpoint_t &listener)
 {
     ssn_state_t complete = SSN_STATE_OK;
     uint32_t sequence = ntohl(packet.tcph.rawtcp->seq);
+    uint32_t ack = ntohl(packet.tcph.rawtcp->ack);
     
-    // TMOD_DEBUG("Next: %u vs %u\n", ep.next_seq, sequence);
+    // TMOD_DEBUG("Next: %u vs %u\n", talker.next_seq, sequence);
 
-    if(ep.next_seq == sequence)
+    if(talker.next_seq == sequence)
         complete = SSN_STATE_CAN_FLUSH;
 
-    if(ep.segments.size() >= MAX_QUEUED_SEGMENTS) {
+    /* Check if this packets ACKs a packet we missed or if we've hit our buffer 
+       limit */
+    else if((ack && talker.next_seq) &&
+            (ack > listener.next_seq) ||
+            talker.segments.size() >= MAX_QUEUED_SEGMENTS) {
         TMOD_DEBUG("Dropping @ %d\n", __LINE__);
-        // XXX Trashing all segments. Revisit what to do when we have a gap.
-        ep.segments.clear();
         ssn_stats.drops++;
-        return complete;
+
+        talker.segments.pop_front();
+        listener.next_seq = sequence + packet.payload_size;
+        talker.next_seq = sequence;
+
+        // XXX Need to return something to indicate we're giving up on a segment
+        return SSN_STATE_CAN_FLUSH; 
     }
 
-    if(!ep.segments.size()) {
+    if(!talker.segments.size()) {
         TMOD_DEBUG("New segment @ %d. Packet %d\n", __LINE__, stats.packets);
-        ep.segments.push_front(packet);
-        ep.next_seq = sequence + packet.payload_size;
+        talker.segments.push_front(packet);
+        talker.next_seq = sequence + packet.payload_size;
 
         return complete;
     }
 
-    list<segment_t>::iterator it = ep.segments.begin();
+    list<segment_t>::iterator it = talker.segments.begin();
 
     /* Queue up new segment. */
-    for(; it != ep.segments.end(); it++) {
+    for(; it != talker.segments.end(); it++) {
         if(it->sequence == sequence) {
             TMOD_DEBUG("Queuing @ %d\n", __LINE__);
             // XXX Revisit
@@ -227,7 +158,7 @@ ssn_state_t restream_ssn_t::queue(
             *it = segment_t(packet);
 
             /* In case the lengths were different, update next seq: */
-            ep.next_seq = sequence + packet.payload_size;
+            talker.next_seq = sequence + packet.payload_size;
             
             return complete;
         }
@@ -238,7 +169,7 @@ ssn_state_t restream_ssn_t::queue(
     } 
     
     TMOD_DEBUG("Inserting @ %d\n", __LINE__);
-    ep.segments.insert(it, packet);
+    talker.segments.insert(it, packet);
 
     return complete;
 }
@@ -303,7 +234,7 @@ void restream_ssn_t::pop()
 }
 
 ssn_state_t restream_ssn_t::update_session(
-    const tmod_pkt_t &packet, tcp_endpoint_t &endpoint)
+    const tmod_pkt_t &packet, tcp_endpoint_t &talker, tcp_endpoint_t &listener)
 {
     /* Check if this packet is shutting down a TCP session */
     if(packet.tcph.rawtcp->flags & TCP_FLAG_FIN || 
@@ -311,7 +242,7 @@ ssn_state_t restream_ssn_t::update_session(
        session_state == SSN_STATE_CLIENT_CLOSING ||
        session_state == SSN_STATE_SERVER_CLOSING) {
 
-        ssn_state_t retval = close_session(packet, endpoint);
+        ssn_state_t retval = close_session(packet, talker);
 
         if(retval == SSN_STATE_CLOSED)
             ssn_stats.drops += client.segments.size() + server.segments.size();
@@ -319,7 +250,7 @@ ssn_state_t restream_ssn_t::update_session(
         return retval;
     }
 
-    return queue(packet, endpoint);
+    return queue(packet, talker, listener);
 }
 
 ssn_state_t restream_ssn_t::add_session(const tmod_pkt_t &packet)
@@ -376,7 +307,7 @@ ssn_state_t restream_ssn_t::add_session(const tmod_pkt_t &packet)
             tcph->src_port == client.port &&
             tcph->flags & TCP_FLAG_ACK) {
         session_state = SSN_STATE_ESTABLISHED;
-        queue(packet, client);
+        queue(packet, client, server);
     }
     else {
         printf("Could not follow handshake. Missing packets? Packet %d\n", 
@@ -412,7 +343,7 @@ ssn_state_t restream_ssn_t::update(const tmod_pkt_t &packet)
 
     time_last_pkt = packet.timestamp;
 
-    if((session_state == SSN_STATE_ESTABLISHED) && 
+    if((session_state != SSN_STATE_ESTABLISHED) && 
         handle_handshake(session_state)) {
         if(SSN_STATE_OK == add_session(packet)) {
             return SSN_STATE_OK;
@@ -428,21 +359,21 @@ ssn_state_t restream_ssn_t::update(const tmod_pkt_t &packet)
     if(packet.iph.rawiph) {
         if(packet.iph.rawiph->src.s_addr == server.ip[0]) {
             packet_flags = PKT_FROM_SERVER;
-            return update_session(packet, server);
+            return update_session(packet, server, client);
         }
         else {
             packet_flags = PKT_FROM_CLIENT;
-            return update_session(packet, client);
+            return update_session(packet, client, server);
         }
     }
     else if(packet.ip6h.rawiph) {
         if(mem4eq(packet.ip6h.rawiph->src.s6_addr32, server.ip)) {
             packet_flags = PKT_FROM_SERVER;
-            return update_session(packet, server);
+            return update_session(packet, server, client);
         }
         else {
             packet_flags = PKT_FROM_CLIENT;
-            return update_session(packet, client);
+            return update_session(packet, client, server);
         }
     }
     else {

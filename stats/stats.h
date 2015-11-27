@@ -4,7 +4,16 @@
 
 class tmod_stats_t
 {
+    void dump();
 public:
-    void update(const tmod_pkt_t &pkt) {}
+    tmod_stats_t();
+    ~tmod_stats_t();
+    void update(const tmod_pkt_t &pkt);
+
+    uint64_t 
+        http,
+        tls,
+        ssh,
+        other;
 };
 

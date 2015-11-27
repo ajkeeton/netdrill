@@ -4,6 +4,9 @@
 #include <string.h>
 #include <stdint.h>
 #include <netinet/in.h>
+#include "decoder_http.h"
+#include "decoder_ssh.h"
+#include "decoder_tls.h"
 
 const uint32_t IP_OPTMAX      = 40;
 const uint32_t TCP_OPTLENMAX  = 40;
@@ -216,3 +219,10 @@ void hex_dump(const uint8_t *, int);
 bool decode(tmod_pkt_t &packet,
             const struct pcap_pkthdr *pkthdr, 
             const uint8_t *pkt);
+
+
+bool decode_http(tmod_pkt_t &pkt);
+bool decode_ssh(tmod_pkt_t &pkt);
+bool decode_tls(tmod_pkt_t &pkt);
+
+void tmod_decoder_init();

@@ -55,11 +55,11 @@ void restream_ctx_t::update(const tmod_pkt_t &packet)
     if(!packet.iph.rawiph || !packet.tcph.rawtcp)
         return;
 
-    restream_ssn_t *ssn = tracker.find(packet);
+    restream_ssn_t *ssn = (restream_ssn_t*)tracker.find(packet);
 
     if(!ssn) {
         try {
-            ssn = tracker.save(packet);
+            ssn = (restream_ssn_t*)tracker.save(packet, new restream_ssn_t());
         }
         catch (...) {
             // XXX Handle more interestingly
@@ -78,7 +78,6 @@ void restream_ctx_t::update(const tmod_pkt_t &packet)
     }
 
     if(state == SSN_STATE_CLOSED) {
-        puts("Closing session"); 
         tracker.clear(packet);
     }
 }

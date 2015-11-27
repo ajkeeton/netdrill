@@ -1,6 +1,7 @@
 
 #include <pcap.h>
 #include <arpa/inet.h>
+#include <pthread.h>
 #include "decoder.h"
 
 extern tmod_proto_stats_t stats;
@@ -464,4 +465,21 @@ void tmod_pkt_t::copy(const tmod_pkt_t &pkt, uint8_t *buffer)
         vlan.ehllc = NULL;
         vlan.ehllcother = NULL;
     }
+}
+
+void tmod_decoder_init()
+{
+    static pthread_mutex_t mux;
+    pthread_mutex_lock(&mux);
+    static bool initialized = false;
+
+    if(initialized) {
+        pthread_mutex_unlock(&mux);
+        return;
+    }
+
+    initialized = true;
+    pthread_mutex_unlock(&mux);
+
+    http_init();
 }

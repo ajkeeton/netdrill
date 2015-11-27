@@ -3,6 +3,7 @@
 set(restream_SRCS
     restream.cc
     restream_ssn.cc
+    ssn.cc
 )
 
 add_library(restream STATIC ${restream_SRCS})

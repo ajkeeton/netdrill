@@ -90,6 +90,7 @@ void packet_cb(void *user_ctx, restream_ctx_t *rs, tmod_pkt_t *packet)
     ctx->stats->update(*packet);
     ctx->modeler->update(*packet);
 
+    // Note to self: Self,
     // Check /tmp/tmod/packstats ... more decoding and useful stats
     // and make packstats standalone-able.
 }
@@ -105,6 +106,8 @@ void usage_and_exit()
 int main(int argc, char **argv) 
 {
     tester_ctx_t ctx;
+
+    tmod_decoder_init();
 
     ctx.restream = new restream_ctx_t(&ctx, packet_cb);
     ctx.logger = new tmod_logger_t();

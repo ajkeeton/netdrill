@@ -6,6 +6,8 @@ set(stats_SRCS
 
 add_library(stats STATIC ${stats_SRCS})
 
+target_link_libraries(stats decoder)
+
 add_definitions(-fPIC)
 
 set(CMAKE_CXX_FLAGS "-g")
