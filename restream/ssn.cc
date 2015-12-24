@@ -1,7 +1,7 @@
 #include "ssn.h"
 #include "logger.h"
 
-extern ssn_stats_t ssn_stats;
+// extern ssn_stats_t ssn_stats;
 
 void *ssn_tracker_t::find(const tmod_pkt_t &packet)
 {
@@ -10,7 +10,7 @@ void *ssn_tracker_t::find(const tmod_pkt_t &packet)
     ssn_tbl_t::iterator it = table.find(key);
     
     if(it == table.end()) {
-        ssn_stats.misses++;
+        // ssn_stats.misses++;
         return NULL;
     }
 
@@ -19,15 +19,16 @@ void *ssn_tracker_t::find(const tmod_pkt_t &packet)
     return it->second.data;
 }
 
-void *ssn_tracker_t::save(const tmod_pkt_t &packet, void *data)
+void *ssn_tracker_t::save(
+    const tmod_pkt_t &packet, void *data, ssn_cleanup_cb_t cleanup_cb)
 {
-    ssn_stats.inserts++;
+    // ssn_stats.inserts++;
     ssn_tbl_key_t key(packet);
 
     time_t timeout = time(NULL);
     timeouts.insert(std::pair<time_t, ssn_tbl_key_t>(timeout, key));
     table.insert(
-        std::pair<ssn_tbl_key_t, ssn_node_t>(key, ssn_node_t(data, timeout)));
+        std::pair<ssn_tbl_key_t, ssn_node_t>(key, ssn_node_t(data, timeout, cleanup_cb)));
 
     return data;
 }
@@ -38,6 +39,9 @@ void ssn_tracker_t::clear(const tmod_pkt_t &packet)
 
     if(it == table.end())
         return;
+
+    if(it->second.ssn_node_cleanup)
+        it->second.ssn_node_cleanup(it->second.data);
 
     timeouts.erase(it->second.timestamp);
     table.erase(it);

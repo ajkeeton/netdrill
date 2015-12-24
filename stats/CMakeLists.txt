@@ -14,4 +14,5 @@ set(CMAKE_CXX_FLAGS "-g")
 
 include_directories(
     ../decoder
+    ../logger
 )

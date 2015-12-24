@@ -5,11 +5,13 @@ set(decoder_SRCS
     http.cc
     ssl.cc
     ssh.cc
+    buffer.cc
+    ../logger/log.cc
 )
 
 add_library(decoder STATIC ${decoder_SRCS})
 
-include_directories(../multifast)
+include_directories(../multifast ../logger ../restream .)
 
 add_definitions(-fPIC)
 

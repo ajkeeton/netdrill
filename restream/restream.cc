@@ -7,7 +7,7 @@
 #include "restream.h"
 
 tmod_proto_stats_t stats;
-ssn_stats_t ssn_stats;
+restream_ssn_stats_t r_ssn_stats;
 
 void restream_dump_packet(const tmod_pkt_t &pkt) 
 {
@@ -32,9 +32,19 @@ void restream_print_stats()
 //    printf("SSL/TLS:        %ld\n", stats.tls);
 //    printf("Other:          %ld\n\n", stats.other);
    
-    printf("Sessions:          %ld\n", ssn_stats.inserts);
-    printf("Drops:             %ld\n", ssn_stats.drops);
-    printf("Broken handshakes: %ld\n", ssn_stats.broken_handshakes);
+    printf("Sessions:          %ld\n", r_ssn_stats.inserts);
+    printf("Drops:             %ld\n", r_ssn_stats.drops);
+    printf("Broken handshakes: %ld\n", r_ssn_stats.broken_handshakes);
+}
+
+bool restream_is_client_side(restream_ssn_t *stream)
+{
+    if(stream)
+        return stream->is_client_side();
+
+    abort();
+    /* XXX Raise exception instead? */
+    return false;
 }
 
 restream_ctx_t::restream_ctx_t(void *user, restream_cb_t cb)
@@ -50,6 +60,12 @@ void restream_packet_process(
     ctx->update(packet);
 }
 
+void restream_ssn_cleanup(void *r)
+{
+    if(r)
+        delete (restream_ssn_t*)r;
+}
+
 void restream_ctx_t::update(const tmod_pkt_t &packet)
 {
     if(!packet.iph.rawiph || !packet.tcph.rawtcp)
@@ -59,7 +75,9 @@ void restream_ctx_t::update(const tmod_pkt_t &packet)
 
     if(!ssn) {
         try {
-            ssn = (restream_ssn_t*)tracker.save(packet, new restream_ssn_t());
+            ssn = (restream_ssn_t*)tracker.save(
+                packet, new restream_ssn_t(), NULL);
+            r_ssn_stats.inserts++;
         }
         catch (...) {
             // XXX Handle more interestingly
@@ -72,8 +90,8 @@ void restream_ctx_t::update(const tmod_pkt_t &packet)
     segment_t *segment;
 
     while((segment = ssn->next())) {
-        callback(user_data, this, &segment->packet);
-
+        segment->packet.stream = ssn;
+        callback(user_data, &segment->packet);
         ssn->pop();
     }
 

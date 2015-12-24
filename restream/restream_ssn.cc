@@ -5,7 +5,7 @@ extern tmod_proto_stats_t stats;
 
 const uint32_t MAX_QUEUED_SEGMENTS = 128;
 
-inline bool restream_ssn_t::is_client_side()
+bool restream_ssn_t::is_client_side()
 {
     return packet_flags & PKT_FROM_CLIENT;
 }
@@ -128,9 +128,11 @@ ssn_state_t restream_ssn_t::queue(
             (ack > listener.next_seq) ||
             talker.segments.size() >= MAX_QUEUED_SEGMENTS) {
         TMOD_DEBUG("Dropping @ %d\n", __LINE__);
-        ssn_stats.drops++;
+        r_ssn_stats.drops++;
 
-        talker.segments.pop_front();
+        if(talker.segments.begin() != talker.segments.end()) 
+            talker.segments.pop_front();
+
         listener.next_seq = sequence + packet.payload_size;
         talker.next_seq = sequence;
 
@@ -245,7 +247,7 @@ ssn_state_t restream_ssn_t::update_session(
         ssn_state_t retval = close_session(packet, talker);
 
         if(retval == SSN_STATE_CLOSED)
-            ssn_stats.drops += client.segments.size() + server.segments.size();
+            r_ssn_stats.drops += client.segments.size() + server.segments.size();
 
         return retval;
     }
@@ -315,7 +317,7 @@ ssn_state_t restream_ssn_t::add_session(const tmod_pkt_t &packet)
 
         // XXX Later, need to make this recoverable
         session_state = SSN_STATE_IGNORE;
-        ssn_stats.broken_handshakes++;
+        r_ssn_stats.broken_handshakes++;
         return SSN_STATE_IGNORE; 
     }
 
@@ -356,6 +358,7 @@ ssn_state_t restream_ssn_t::update(const tmod_pkt_t &packet)
     
     packet_flags = 0;
 
+    #warning Change to use the port to determine side, not the IP
     if(packet.iph.rawiph) {
         if(packet.iph.rawiph->src.s_addr == server.ip[0]) {
             packet_flags = PKT_FROM_SERVER;

@@ -11,8 +11,7 @@
 
 class restream_ctx_t;
 
-typedef void (*restream_cb_t)
-    (void *user_ctx, restream_ctx_t *ctx, tmod_pkt_t *packet);
+typedef void (*restream_cb_t)(void *user_ctx, tmod_pkt_t *packet);
 
 class restream_ctx_t
 {
@@ -21,10 +20,11 @@ class restream_ctx_t
     restream_ctx_t();
 public:
     void update(const tmod_pkt_t &packet);
-    ssn_tracker_t tracker;
     restream_ctx_t(void *user, restream_cb_t callback);
+    ssn_tracker_t tracker;
 };
 
 void restresam_free(restream_ctx_t *ctx);
 void restream_packet_process(restream_ctx_t *ctx, tmod_pkt_t &pkt);
 void restream_print_stats();
+bool restream_is_client_side(restream_ssn_t *stream);

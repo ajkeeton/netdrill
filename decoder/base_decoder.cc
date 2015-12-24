@@ -34,7 +34,7 @@ static inline uint32_t tcph_get_offset(uint32_t val)
     return (val & 0xf0) >> 4;
 }
 
-void tmod_decode_tcp(tmod_pkt_t *stream, const uint8_t *pkt, uint32_t len)
+void tmod_decode_tcp(tmod_pkt_t *stream, uint8_t *pkt, uint32_t len)
 {
     if(len < HDR_TCP_LEN)
         return;
@@ -368,11 +368,24 @@ tmod_pkt_t::tmod_pkt_t()
     user = NULL;
     payload = NULL;
     raw_size = 0;
+    ssn = NULL;
     memset(&iph, 0, sizeof(iph));
     memset(&ip6h, 0, sizeof(ip6h));
     memset(&tcph, 0, sizeof(tcph));
     memset(&vlan, 0, sizeof(vlan));
 }
+
+tmod_pkt_t::tmod_pkt_t(const tmod_pkt_t &t)
+{
+    copy(t, (uint8_t*)t.raw_pkt);
+}
+
+#if 0
+proto_id_t tmod_pkt_t::protocol()
+{
+    return proto_id;
+}
+#endif
 
 static uint8_t *generate_offset(
     const void *raw_pkt, const void *top, const void *bottom)
@@ -388,6 +401,8 @@ void tmod_pkt_t::copy(const tmod_pkt_t &pkt, uint8_t *buffer)
     payload = raw_pkt + (pkt.payload - pkt.raw_pkt);
     payload_size = pkt.payload_size;
     user = pkt.user;
+    ssn = pkt.ssn;
+    const_cast<tmod_pkt_t&>(pkt).ssn = NULL;
 
     iph = pkt.iph;
 
@@ -466,6 +481,69 @@ void tmod_pkt_t::copy(const tmod_pkt_t &pkt, uint8_t *buffer)
         vlan.ehllcother = NULL;
     }
 }
+
+tmod_ssn_t::tmod_ssn_t()
+{
+    data = NULL;
+    proto_id = PROTO_UNKNOWN;
+}
+
+tmod_ssn_t::tmod_ssn_t(tmod_pkt_t *pkt)
+{
+    data = NULL;
+    proto_id = PROTO_UNKNOWN;
+
+    char srcip[128], dstip[128];
+
+    if(pkt->iph.rawiph) {
+        inet_ntop(AF_INET, &pkt->iph.rawiph->src.s_addr, srcip, sizeof(srcip));
+        inet_ntop(AF_INET, &pkt->iph.rawiph->dst.s_addr, dstip, sizeof(dstip));
+    }
+    else if(pkt->ip6h.rawiph) {
+        uint8_t *tmpip = pkt->ip6h.rawiph->src.s6_addr;
+        inet_ntop(AF_INET6, &tmpip, srcip, sizeof(srcip));
+        tmpip = pkt->ip6h.rawiph->dst.s6_addr;
+        inet_ntop(AF_INET6, &tmpip, dstip, sizeof(dstip));
+
+        // XXX
+        puts("IPv6 untested!");
+        abort();
+    }
+    else {
+        strcpy(srcip, "no_ip");
+        strcpy(dstip, "no_ip");
+    }
+
+    int offset = 0;
+
+    if(pkt->tcph.rawtcp) {
+        offset = sprintf(description, "%s:%d-%s:%d", 
+            srcip, ntohs(pkt->tcph.rawtcp->src_port),
+            dstip, ntohs(pkt->tcph.rawtcp->dst_port));
+
+    }
+    else {
+         offset = sprintf(description, "%s-%s", 
+            srcip, dstip);
+    }
+
+    if(pkt->vlan.raw)
+        sprintf(description + offset, "-vlan:%d", ntohs(pkt->vlan.raw->tag));
+
+    // XXX This does not handle ARP / ICMP, etc
+    // XXX Add MAC addresses?
+
+    printf("%s\n", description);
+}
+
+tmod_ssn_t::~tmod_ssn_t()
+{
+    if(data && cleanup_cb)
+        cleanup_cb(data);
+}
+
+// XXX eh, clean?
+void http_init();
 
 void tmod_decoder_init()
 {

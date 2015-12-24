@@ -3,6 +3,18 @@
 #include "decoder.h"
 #include "ssn.h"
 
+struct restream_ssn_stats_t 
+{
+    uint64_t 
+        inserts,
+        clears,
+        misses,
+        drops,
+        broken_handshakes;
+};
+
+extern restream_ssn_stats_t r_ssn_stats;
+
 enum endpoint_state_t {
     ENDPOINT_NONE,
     ENDPOINT_LISTEN,
@@ -48,10 +60,18 @@ public:
     segment_t(const tmod_pkt_t &pkt) {
         if(pkt.raw_size > JUMBO_MTU) abort();
 
-        length = pkt.payload_size;
+        length = pkt.raw_size;
         sequence = ntohl(pkt.tcph.rawtcp->seq);
         memcpy(buffer, pkt.raw_pkt, pkt.raw_size);
         packet.copy(pkt, buffer);
+    }
+
+    segment_t(const segment_t &s)
+    {
+        length = s.length;
+        sequence = s.sequence;
+        memcpy(buffer, s.buffer, length);
+        packet.copy(s.packet, buffer);
     }
 
     const segment_t &operator=(const segment_t &s)
@@ -95,7 +115,6 @@ class restream_ssn_t
                                tcp_endpoint_t &listener);
     ssn_state_t update_session(const tmod_pkt_t &packet);
 
-    bool is_client_side();
     ssn_state_t queue(
         const tmod_pkt_t &pkt, tcp_endpoint_t &talker, tcp_endpoint_t &listener);
     void flush(tcp_endpoint_t &ep);
@@ -112,12 +131,13 @@ public:
         flush();
     }
     ssn_state_t update(const tmod_pkt_t &packet);
-    void flush();
+    void flush() { /* XXX TODO */ }
     segment_t *next_server();
     segment_t *next_client();
     segment_t *next();
     void pop_server();
     void pop_client();
     void pop();
+    bool is_client_side();
 };
 

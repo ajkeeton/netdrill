@@ -4,6 +4,7 @@
 #include "eventing.h"
 #include "stats.h"
 #include "modeler.h"
+#include "ssn.h"
 
 #define TEST(passfail) do { if(!passfail) printf("Failed @ %d\n",__LINE__); } while(0) 
 
@@ -14,7 +15,16 @@ struct tester_ctx_t
     tmod_event_t *event;
     tmod_modeler_t *modeler;
     tmod_stats_t *stats;
+
+    ssn_tracker_t ssn_tracker;
 };
+
+/* XXX refactor/clean */
+void tmod_ssn_free(void *p)
+{
+    if(p) 
+        delete (tmod_ssn_t*)p;
+}
 
 void pcap_cb(u_char *user, 
              const struct pcap_pkthdr *pkthdr, 
@@ -27,6 +37,15 @@ void pcap_cb(u_char *user,
     if(!decode(packet, pkthdr, pkt)) {
         puts("Err decoding.");
         return;
+    }
+
+    /* XXX refactor/clean. This needs to be abstracted out */
+    packet.ssn = (tmod_ssn_t*)ctx->ssn_tracker.find(packet);
+
+    /* XXX refactor/clean. This needs to be abstracted out */
+    if(!packet.ssn) {
+        packet.ssn = new tmod_ssn_t(&packet);
+        ctx->ssn_tracker.save(packet, packet.ssn, tmod_ssn_free);
     }
 
     restream_packet_process(ctx->restream, packet);
@@ -77,7 +96,7 @@ int test_pcap(tester_ctx_t &ctx, char *ifaceorfile, bool online, char *bpfstr)
 
 #define MAX_DUMP 256
 
-void packet_cb(void *user_ctx, restream_ctx_t *rs, tmod_pkt_t *packet)
+void packet_cb(void *user_ctx, tmod_pkt_t *packet)
 {
     tester_ctx_t *ctx = (tester_ctx_t*)user_ctx;
 
@@ -110,7 +129,7 @@ int main(int argc, char **argv)
     tmod_decoder_init();
 
     ctx.restream = new restream_ctx_t(&ctx, packet_cb);
-    ctx.logger = new tmod_logger_t();
+    // ctx.logger = new tmod_logger_t();
     ctx.event = new tmod_event_t((char*)"test/patterns.conf");
     ctx.stats = new tmod_stats_t();
     ctx.modeler = new tmod_modeler_t();

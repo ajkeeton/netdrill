@@ -46,19 +46,6 @@ static inline bool mem4eq(uint32_t *a, const uint32_t *b)
         a[3] == b[3];
 }
 
-
-struct ssn_stats_t 
-{
-    uint64_t 
-        inserts,
-        clears,
-        misses,
-        drops,
-        broken_handshakes;
-};
-
-extern ssn_stats_t ssn_stats;
-
 class ssn_tbl_key_t {
 public:
     uint32_t client_ip[4],
@@ -213,6 +200,8 @@ public:
     }
 };
 
+typedef void (*ssn_cleanup_cb_t)(void *);
+
 class ssn_node_t {
 public:
     ssn_node_t() : 
@@ -220,14 +209,14 @@ public:
         timestamp = last_access = time(NULL);
     }
 
-    ssn_node_t(void *d, time_t t) : 
+    ssn_node_t(void *d, time_t t, ssn_cleanup_cb_t cb) :
         data(d), len(0), timestamp(t), 
-        last_access(t), ssn_node_cleanup(NULL) {}
+        last_access(t), ssn_node_cleanup(cb) {}
 
     ~ssn_node_t() { 
         if(data && ssn_node_cleanup) {
             ssn_node_cleanup(data); 
-            ssn_stats.clears++;
+            // ssn_stats.clears++;
         }
     }
 
@@ -239,6 +228,7 @@ public:
         ssn_node_cleanup = s.ssn_node_cleanup;
         const_cast<ssn_node_t &>(s).data = NULL;
         const_cast<ssn_node_t &>(s).len = 0;
+        ssn_node_cleanup = s.ssn_node_cleanup;
         return *this;
     }
 
@@ -250,7 +240,7 @@ public:
     uint32_t len;
     time_t timestamp;
     time_t last_access;
-    void (*ssn_node_cleanup)(void *);
+    ssn_cleanup_cb_t ssn_node_cleanup;
 };
 
 typedef std::map<ssn_tbl_key_t, ssn_node_t> ssn_tbl_t; 
@@ -265,7 +255,8 @@ class ssn_tracker_t
 public:
     ssn_tracker_t() { timeout = TIMEOUT_DEFAULT; }
     void *find(const tmod_pkt_t &packet);
-    void *save(const tmod_pkt_t &packet, void *);
+    void *save(
+        const tmod_pkt_t &packet, void *data, ssn_cleanup_cb_t cleanup_cb);
     void clear(const tmod_pkt_t &packet);
     void update_timeouts();
 };

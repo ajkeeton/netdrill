@@ -2,9 +2,12 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 #include <stdint.h>
 #include <netinet/in.h>
-#include "decoder_http.h"
+#include "exceptions.h"
+#include "logger.h"
+//#include "decoder_http.h"
 #include "decoder_ssh.h"
 #include "decoder_tls.h"
 
@@ -19,7 +22,7 @@ const uint32_t TCP_FLAG_ACK = 0x10;
 const uint32_t TCP_FLAG_URG = 0x20;
 const uint32_t TCP_FLAG_ECE = 0x40;  /* ECN echo, RFC 3168 */
 const uint32_t TCP_FLAG_CWR = 0x80;  /* Congestion Window Reduced, RFC 3168 */
-const uint32_t JUMBO_MTU    = 9000;
+const uint32_t JUMBO_MTU    = 16000;
 
 const uint32_t PROTO_FLAG_NONE = 0x0000;
 const uint32_t PROTO_FLAG_IP   = 0x0001;
@@ -89,7 +92,7 @@ struct raw_ip6_hdr_t {
 
 struct vlan_tag_hdr_t
 {
-    uint16_t pri_cfi_vlan;
+    uint16_t tag;
     uint16_t proto;  /* protocol field... */
 };
 
@@ -168,11 +171,78 @@ struct tmod_vlan_t
     vlan_eth_llc_other_t *ehllcother;
 };
 
+class data_buffer_t
+{
+    uint8_t *buf_data;
+    uint32_t buf_size;
+    uint32_t buf_end;
+    uint32_t buf_cur;
+    
+    const data_buffer_t &operator=(data_buffer_t &);
+public:
+    data_buffer_t(const data_buffer_t&);
+    data_buffer_t();
+    ~data_buffer_t();
+    void queue(const uint8_t *data, uint32_t length);
+    uint8_t *read(uint32_t total);
+
+    uint8_t *start() { return buf_data; }
+    uint8_t *current() { return buf_data + buf_cur; }
+    uint32_t available() { return buf_end - buf_cur; }
+    uint32_t length() { return buf_end; }
+    void rewind(uint32_t num);
+    void rewind();
+};
+
+enum proto_id_t 
+{
+    PROTO_UNKNOWN,
+    PROTO_NOT,
+    PROTO_HTTP,
+    PROTO_SSH,
+    PROTO_TLS,
+    PROTO_UNSUPPORTED
+};
+
+class restream_ssn_t;
+
+bool restream_is_client_side(restream_ssn_t *);
+
+typedef void (*tmod_ssn_cleanup_cb_t)(void *);
+class tmod_pkt_t;
+
+class tmod_ssn_t
+{
+    proto_id_t proto_id;
+    tmod_ssn_t();
+public:
+    tmod_ssn_t(tmod_pkt_t *pkt);
+    ~tmod_ssn_t();
+    proto_id_t protocol() { return proto_id; }
+    void set_protocol(proto_id_t id) { proto_id = id; }
+
+    char description[128];
+    void *data; /* For session-specific data */
+    tmod_ssn_cleanup_cb_t cleanup_cb; /* Cleanup CB for session-specific data */
+};
+
 class tmod_pkt_t 
 {
     const tmod_pkt_t &operator=(const tmod_pkt_t &pkt);
 public:
     tmod_pkt_t();
+    tmod_pkt_t(const tmod_pkt_t &t);
+    ~tmod_pkt_t()
+    {
+        /* XXX Don't delete ssn. It's managed by the session tracking code! */
+        //  if(ssn)
+        //  delete ssn;
+    }
+
+    bool is_tcp_client_side()
+    {   
+        return restream_is_client_side(stream);
+    }
     
     /* Effectively a copy constructor. Chose this route since the packet buffer
        is managed outside of the class. */
@@ -183,12 +253,15 @@ public:
     timeval timestamp;
     const uint8_t *payload;
     uint32_t payload_size;
-    void *user;
 
     tmod_iph_t iph;
     tmod_ip6h_t ip6h;
     tmod_tcph_t tcph;
     tmod_vlan_t vlan;
+
+    restream_ssn_t *stream; // XXX Necessary? Move tp tmod_tcph_t?
+    tmod_ssn_t *ssn;
+    void *user; // XXX Use this instead of tmod_ssn_t*?
 };
 
 struct tmod_proto_stats_t 
