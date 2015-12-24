@@ -180,15 +180,28 @@ static inline bool http_header_val_to_int(
     return true;
 }
 
-void tmod_http_t::init()
+http_data_buffer_t::http_data_buffer_t()
 {
+    init();
+}
+
+void http_data_buffer_t::init()
+{
+    header_complete = false;
+    body_complete = false;
     length = body_length = content_length = 
         content_remaining = body_offset = header_offset = 0;
-    is_request = true;
-    is_chunked = false;
+
     header_complete = body_complete = false;
-    client_buffer = new data_buffer_t();
-    server_buffer = new data_buffer_t();
+    is_chunked = false;
+
+    rewind();
+}
+
+void tmod_http_t::init()
+{
+    client_buffer = new http_data_buffer_t();
+    server_buffer = new http_data_buffer_t();
 }
 
 #if 0
@@ -198,7 +211,7 @@ tmod_http_t::tmod_http_t(tmod_pkt_t &pkt)
 }
 #endif
 
-bool tmod_http_t::find_header_end(data_buffer_t &buf)
+bool tmod_http_t::find_header_end(http_data_buffer_t &buf)
 {
     uint32_t length = buf.available();
 
@@ -229,11 +242,10 @@ bool tmod_http_t::find_header_end(data_buffer_t &buf)
             /* XXX Should be able to do this using the index of the string
                    in the original data struct instead */
             if(!strcmp(pp->ptext.astring, "\r\n\r\n")) {
-                header_complete = true;
-                // XXX Not 100% confident here...
-                body_offset = match.position;
+                buf.header_complete = true;
+                buf.body_offset = match.position;
                 retval = true;
-                //bytes_read = match.position;
+                buf.read(match.position);
                 break;
             }
             else if(!strcasecmp(pp->ptext.astring, "Content-Length:")) {
@@ -244,27 +256,28 @@ bool tmod_http_t::find_header_end(data_buffer_t &buf)
                     throw Proto_Error(__FILE__, __func__, __LINE__);
                 }
 
-                content_length = tmp;
-                content_remaining = tmp;
+                buf.content_length = tmp;
+                buf.content_remaining = tmp;
+                buf.body_length = tmp;
             }
             else if(!strcasecmp(pp->ptext.astring, "Transfer")) {
-                is_chunked = true;
+                buf.is_chunked = true;
             }
         }
     }
 
-    if(body_complete && !header_complete)
+    if(buf.body_complete && !buf.header_complete)
         throw Proto_Error(__FILE__, __func__, __LINE__);
 
-    /* Move buffer forward */
-    buf.read(length);
+    if(!buf.header_complete)
+        buf.read(length);
 
     return retval;
 }
 
-bool tmod_http_t::parse_header(data_buffer_t &buf)
+bool tmod_http_t::parse_header(http_data_buffer_t &buf)
 {
-    assert(!header_complete);
+    assert(!buf.header_complete);
 
     /* Pick out any headers of interest, decode URL, etc. */
     // TODO
@@ -285,37 +298,38 @@ bool tmod_http_t::parse_header(data_buffer_t &buf)
     return false;
 }
 
-bool tmod_http_t::parse_body(data_buffer_t &buf)
+bool tmod_http_t::parse_body(http_data_buffer_t &buf)
 {
     bool retval = false;
 
-    if(is_chunked && content_length)
+    if(buf.is_chunked && buf.content_length)
         /* XXX Is there any valid case where we'd have both? */
         throw Proto_Error(__FILE__, __func__, __LINE__);
 
     uint32_t avail = buf.available();
 
-    if(is_chunked) {
+    if(buf.is_chunked) {
         // TODO
         throw Unsupported(__FILE__, __func__, __LINE__);
     }
-    else if(content_length) {
+    else if(buf.content_length) {
         /* Check if we have enough in the buffer. */
         //if(avail >= content_length) {
-        if(avail >= content_remaining) {
-            body_complete = true;
+        if(avail >= buf.content_remaining) {
+            buf.body_complete = true;
             retval = true;
-            buf.read(content_remaining);
-            content_remaining = 0;
+            buf.read(buf.content_remaining);
+            buf.content_remaining = 0;
         }
         else {
-            content_remaining = avail;
+            buf.content_remaining -= avail;
             buf.read(avail);
         }
     }
     else {
-        body_complete = true;
+        buf.body_complete = true;
         retval = true;
+        buf.body_length = 0;
     }
 
 #if 0
@@ -339,15 +353,15 @@ And then:
     return retval;
 }
 
-bool tmod_http_t::decode(data_buffer_t &buf)
+bool tmod_http_t::decode(http_data_buffer_t &buf)
 {
-    if(!header_complete) {
+    if(!buf.header_complete) {
         if(!parse_header(buf)) {
             return false;
         }
     }
 
-    if(header_complete && !body_complete) {
+    if(buf.header_complete && !buf.body_complete) {
         if(!parse_body(buf)) {
             return false;
         }
@@ -358,11 +372,8 @@ bool tmod_http_t::decode(data_buffer_t &buf)
 
 void tmod_http_t::purge()
 {
-    header_complete = false;
-    body_complete = false;
-
-    client_buffer->rewind();
-    server_buffer->rewind();
+    client_buffer->init();
+    server_buffer->init();
 }
 
 #if 0

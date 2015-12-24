@@ -3,6 +3,10 @@
 #include <arpa/inet.h>
 #include <pthread.h>
 #include "decoder.h"
+#include "decoder_http.h"
+#include "decoder_ssh.h"
+#include "decoder_tls.h"
+#include "restream.h"
 
 extern tmod_proto_stats_t stats;
 
@@ -313,8 +317,15 @@ void tmod_decode_vlan(tmod_pkt_t *stream, uint8_t *pkt, uint32_t len)
     }
 }
 
+static void ssn_free_cb(void *p)
+{
+    if(p) 
+        delete (tmod_ssn_t*)p;
+}
+
 bool decode(
-    tmod_pkt_t &packet,
+    ssn_tracker_t *ssn,
+    tmod_pkt_t *packet,
     const struct pcap_pkthdr *pkthdr, 
     const uint8_t *pkt)
 {
@@ -324,11 +335,11 @@ bool decode(
         return false;
     }
 
-    packet.raw_pkt = pkt; 
-    packet.raw_size = pkthdr->caplen;
-    packet.payload = NULL;
-    packet.payload_size = 0;
-    packet.timestamp = pkthdr->ts;
+    packet->raw_pkt = pkt; 
+    packet->raw_size = pkthdr->caplen;
+    packet->payload = NULL;
+    packet->payload_size = 0;
+    packet->timestamp = pkthdr->ts;
 
     ether_hdr_t *eh = (ether_hdr_t*)pkt;
 
@@ -336,30 +347,66 @@ bool decode(
     {
         case ETHER_TYPE_IP:
             tmod_decode_ip4(
-                &packet,
-                (uint8_t*)packet.raw_pkt + HDR_ETHER_LEN, 
+                packet,
+                (uint8_t*)packet->raw_pkt + HDR_ETHER_LEN, 
                 pkthdr->caplen - HDR_ETHER_LEN);
 
             break;
 
         case ETHER_TYPE_IPV6:
             tmod_decode_ip6(
-                &packet,
-                (uint8_t*)packet.raw_pkt + HDR_ETHER_LEN, 
+                packet,
+                (uint8_t*)packet->raw_pkt + HDR_ETHER_LEN, 
                 pkthdr->caplen - HDR_ETHER_LEN);
 
             break;
 
         case ETHER_TYPE_VLAN:
             tmod_decode_vlan(
-                &packet,
-                (uint8_t*)packet.raw_pkt + HDR_ETHER_LEN, 
+                packet,
+                (uint8_t*)packet->raw_pkt + HDR_ETHER_LEN, 
                 pkthdr->caplen - HDR_ETHER_LEN);
 
         break;
     }
 
     return true;
+}
+
+bool decode_application_layer(ssn_tracker_t *ssn, tmod_pkt_t *packet)
+{
+    if(!packet->tcph.rawtcp) {
+        packet->ssn = NULL;
+        return true;
+    }
+
+    packet->ssn = (tmod_ssn_t*)(ssn->find(*packet));
+
+    if(!packet->ssn) {
+        packet->ssn = new tmod_ssn_t(packet);
+        ssn->save(*packet, packet->ssn, ssn_free_cb);
+    }
+
+    /* Application-layer protocol decoders */
+
+    if(decode_http(*packet)) {
+        //http++;
+        return true;
+    }
+
+    if(decode_tls(*packet)) {
+        //tls++;
+        return true;
+    }
+    
+    if(decode_ssh(*packet)) {
+        //ssh++;
+        return true;
+    }
+
+    //other++;
+
+    return false;
 }
 
 tmod_pkt_t::tmod_pkt_t()

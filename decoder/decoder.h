@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include <netinet/in.h>
 #include "exceptions.h"
+#include "data_buffer.h"
 #include "logger.h"
 //#include "decoder_http.h"
 #include "decoder_ssh.h"
@@ -171,29 +172,6 @@ struct tmod_vlan_t
     vlan_eth_llc_other_t *ehllcother;
 };
 
-class data_buffer_t
-{
-    uint8_t *buf_data;
-    uint32_t buf_size;
-    uint32_t buf_end;
-    uint32_t buf_cur;
-    
-    const data_buffer_t &operator=(data_buffer_t &);
-public:
-    data_buffer_t(const data_buffer_t&);
-    data_buffer_t();
-    ~data_buffer_t();
-    void queue(const uint8_t *data, uint32_t length);
-    uint8_t *read(uint32_t total);
-
-    uint8_t *start() { return buf_data; }
-    uint8_t *current() { return buf_data + buf_cur; }
-    uint32_t available() { return buf_end - buf_cur; }
-    uint32_t length() { return buf_end; }
-    void rewind(uint32_t num);
-    void rewind();
-};
-
 enum proto_id_t 
 {
     PROTO_UNKNOWN,
@@ -205,11 +183,10 @@ enum proto_id_t
 };
 
 class restream_ssn_t;
+class tmod_pkt_t;
 
 bool restream_is_client_side(restream_ssn_t *);
-
 typedef void (*tmod_ssn_cleanup_cb_t)(void *);
-class tmod_pkt_t;
 
 class tmod_ssn_t
 {
@@ -287,15 +264,18 @@ struct tmod_proto_stats_t
 
 extern tmod_proto_stats_t stats;
 
-void hex_dump(const uint8_t *, int);
+class ssn_tracker_t;
 
-bool decode(tmod_pkt_t &packet,
+bool decode(
+        ssn_tracker_t *ssn,
+        tmod_pkt_t *packet,
             const struct pcap_pkthdr *pkthdr, 
             const uint8_t *pkt);
 
+bool decode_application_layer(ssn_tracker_t *ssn, tmod_pkt_t *packet);
 
 bool decode_http(tmod_pkt_t &pkt);
 bool decode_ssh(tmod_pkt_t &pkt);
 bool decode_tls(tmod_pkt_t &pkt);
-
 void tmod_decoder_init();
+void hex_dump(const uint8_t *, int);

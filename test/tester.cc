@@ -4,7 +4,6 @@
 #include "eventing.h"
 #include "stats.h"
 #include "modeler.h"
-#include "ssn.h"
 
 #define TEST(passfail) do { if(!passfail) printf("Failed @ %d\n",__LINE__); } while(0) 
 
@@ -19,13 +18,6 @@ struct tester_ctx_t
     ssn_tracker_t ssn_tracker;
 };
 
-/* XXX refactor/clean */
-void tmod_ssn_free(void *p)
-{
-    if(p) 
-        delete (tmod_ssn_t*)p;
-}
-
 void pcap_cb(u_char *user, 
              const struct pcap_pkthdr *pkthdr, 
              const u_char *pkt)
@@ -34,18 +26,9 @@ void pcap_cb(u_char *user,
 
     tmod_pkt_t packet;
 
-    if(!decode(packet, pkthdr, pkt)) {
+    if(!decode(&ctx->ssn_tracker, &packet, pkthdr, pkt)) {
         puts("Err decoding.");
         return;
-    }
-
-    /* XXX refactor/clean. This needs to be abstracted out */
-    packet.ssn = (tmod_ssn_t*)ctx->ssn_tracker.find(packet);
-
-    /* XXX refactor/clean. This needs to be abstracted out */
-    if(!packet.ssn) {
-        packet.ssn = new tmod_ssn_t(&packet);
-        ctx->ssn_tracker.save(packet, packet.ssn, tmod_ssn_free);
     }
 
     restream_packet_process(ctx->restream, packet);
@@ -101,6 +84,9 @@ void packet_cb(void *user_ctx, tmod_pkt_t *packet)
     tester_ctx_t *ctx = (tester_ctx_t*)user_ctx;
 
     TMOD_DEBUG("Packet size: %d\n", packet->payload_size);
+
+    // This needs to happen after restream, hence why it's here.
+    decode_application_layer(&ctx->ssn_tracker, packet);
 
     //tmod_hex_dump(packet->payload, packet->payload_size);
     //ctx->logger->payload_save_hex(data, length);
