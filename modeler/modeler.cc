@@ -54,7 +54,12 @@ void tmod_modeler_t::http_handler(tmod_pkt_t &pkt)
     if(log_only && 
        http->client_buffer->complete() &&
        http->server_buffer->complete()) {
-        log_to_file(pkt); 
+
+        //if(foo)
+            log_to_file(pkt); 
+        //else
+        //  log_to_db(pkt);
+
         http->purge();
     }
 }
